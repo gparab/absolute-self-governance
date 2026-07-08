@@ -1,0 +1,221 @@
+import os
+import time
+import yaml
+import json
+import logging
+import threading
+from typing import Optional
+from self_governance.consensus import run_consensus
+from self_governance.dimensioning import dimension_swarm
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+logger = logging.getLogger("self_governance.nudger")
+
+class HandoffValueError(ValueError):
+    """Exception raised when handoff values are invalid or malformed."""
+    pass
+
+class HandoffKeyError(KeyError):
+    """Exception raised when a required key is missing in handoff."""
+    pass
+
+class HandoffTypeError(TypeError):
+    """Exception raised when handoff types are incorrect."""
+    pass
+
+def write_swarm_config_to_stream(stream, config) -> None:
+    """
+    Stream SwarmConfig serialization directly to the file handle block-by-block.
+    """
+    if not config.swarm:
+        stream.write("{\n  \"swarm\": []\n}")
+        return
+
+    stream.write("{\n")
+    stream.write("  \"swarm\": [\n")
+    first = True
+    for agent in config.swarm:
+        if not first:
+            stream.write(",\n")
+        first = False
+        # Convert agent (dataclass) to dict so it can be serialized to JSON
+        agent_str = json.dumps(dict(agent), indent=2)
+        indented_agent = "\n".join("    " + line for line in agent_str.splitlines())
+        stream.write(indented_agent)
+    stream.write("\n  ]\n")
+    stream.write("}")
+
+class HandoffHandler(FileSystemEventHandler):
+    def __init__(self, nudger: 'ContinuousNudger') -> None:
+        self.nudger = nudger
+        
+    def on_modified(self, event):
+        if not event.is_directory and os.path.basename(event.src_path) == "handoff.md":
+            self.nudger.process_handoff()
+
+    def on_created(self, event):
+        if not event.is_directory and os.path.basename(event.src_path) == "handoff.md":
+            self.nudger.process_handoff()
+
+class ContinuousNudger:
+    """
+    An event-driven file watcher that monitors handoff.md for a COMPLETED status.
+    When triggered, it initiates a succession session and schedules the next phase.
+    """
+    def __init__(self, working_directory: str) -> None:
+        """
+        Initialize ContinuousNudger.
+
+        Args:
+            working_directory: The directory where handoff.md, logs, and prompt drafts are located.
+        """
+        self.working_directory = working_directory
+        self.lock = threading.Lock()
+        self.last_content: Optional[str] = None
+        self.has_transient_error = False
+        self._stop_event = threading.Event()
+
+    def process_handoff(self) -> None:
+        """
+        Process the handoff file if it exists and has modified content.
+        Uses thread-safe lock synchronization.
+        """
+        with self.lock:
+            handoff_path = os.path.join(self.working_directory, "handoff.md")
+            if not os.path.exists(handoff_path):
+                return
+
+            try:
+                with open(handoff_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception as e:
+                logger.error("Transient error reading handoff file: %s", e)
+                self.has_transient_error = True
+                return
+
+            if content == self.last_content:
+                return
+
+            try:
+                # 1. Try parsing YAML
+                try:
+                    parsed = yaml.safe_load(content)
+                except Exception as e:
+                    logger.error("Permanent error: Malformed YAML: %s", e)
+                    self.last_content = content
+                    self.has_transient_error = False
+                    return
+
+                # 2. Check if parsed is valid dictionary
+                if not isinstance(parsed, dict):
+                    logger.error("Permanent error: Handoff content must be a dictionary")
+                    self.last_content = content
+                    self.has_transient_error = False
+                    return
+
+                # 3. Check if status is COMPLETED
+                if parsed.get("status") == "COMPLETED":
+                    try:
+                        self.trigger_succession(content)
+                    except (HandoffValueError, HandoffKeyError, HandoffTypeError, ValueError, KeyError, TypeError) as e:
+                        logger.error("Permanent error in trigger_succession: %s", e)
+                        self.last_content = content
+                        self.has_transient_error = False
+                        return
+                else:
+                    # status is not COMPLETED (e.g. IN_PROGRESS)
+                    self.last_content = content
+                    self.has_transient_error = False
+                    return
+
+                # If succession completes successfully:
+                self.last_content = content
+                self.has_transient_error = False
+
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception as e:
+                # Transient error (like write errors in trigger_succession)
+                logger.error("Transient error during handoff processing: %s", e)
+                self.has_transient_error = True
+
+    def watch_handoff(self) -> None:
+        """
+        Begins event-driven monitoring of handoff.md.
+        """
+        # Initial startup check: process handoff.md if it already exists
+        self.process_handoff()
+
+        observer = Observer()
+        handler = HandoffHandler(self)
+        observer.schedule(handler, path=self.working_directory, recursive=False)
+        observer.start()
+
+        try:
+            while not self._stop_event.is_set():
+                # If we had a transient error, retry processing
+                if self.has_transient_error:
+                    self.process_handoff()
+                time.sleep(0.05)
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Stopping observer due to KeyboardInterrupt/SystemExit")
+            raise
+        finally:
+            observer.stop()
+            observer.join()
+
+    def trigger_succession(self, handoff_content: str) -> None:
+        """
+        Execute SuccessionSession with TETD consensus, append logs, and draft next prompt.
+
+        Args:
+            handoff_content: The YAML content from the handoff file.
+
+        Raises:
+            HandoffValueError: If handoff content is malformed or invalid.
+            HandoffKeyError: If a required key (e.g. 'candidates') is missing.
+            HandoffTypeError: If candidate list has an incorrect type.
+        """
+        try:
+            parsed = yaml.safe_load(handoff_content)
+        except Exception as e:
+            raise HandoffValueError(f"Malformed YAML: {e}")
+
+        if parsed is None or not isinstance(parsed, dict):
+            raise HandoffValueError("Handoff content must be a dictionary")
+
+        if "candidates" not in parsed:
+            raise HandoffKeyError("Missing 'candidates' key in handoff")
+
+        candidates = parsed["candidates"]
+        if candidates is None:
+            raise HandoffValueError("'candidates' cannot be null")
+        if not isinstance(candidates, list):
+            raise HandoffTypeError("'candidates' must be a list")
+
+        # 2. Run consensus
+        res = run_consensus(candidates)
+        approved_roster = res.approved_roster
+
+        # 3. Compute dynamic requirements scale
+        req_vector = [float(len(approved_roster)), 1.0]
+        trans_matrix = [[1.0, 0.0], [0.0, 1.0]]
+        swarm_config = dimension_swarm(req_vector, trans_matrix)
+
+        # 4. Serialize config and draft prompt first
+        prompt_path = os.path.join(self.working_directory, "prompt_draft.md")
+        with open(prompt_path, "w", encoding="utf-8") as f:
+            f.write("--- Swarm Configuration ---\n")
+            write_swarm_config_to_stream(f, swarm_config)
+            f.write("\n--- End Configuration ---\n")
+            f.write("Prompt: Guide the swarm to collaborate on the next phase.\n")
+
+        # 5. Append rotation details to roster_rotation_log.md last (committing step)
+        log_path = os.path.join(self.working_directory, "roster_rotation_log.md")
+        approved_str = ", ".join(approved_roster)
+        log_entry = f"Succession Session Completed. Approved Roster: [{approved_str}]\n"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(log_entry)

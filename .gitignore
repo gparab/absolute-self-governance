@@ -1,0 +1,32 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Pytest caches and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+.hypothesis/
+
+# Agent metadata and logs
+.agents/
+ORIGINAL_REQUEST.md
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build and egg info
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

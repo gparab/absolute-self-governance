@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self_governance"
+version = "0.1.0"
+dependencies = [
+    "pyyaml",
+    "watchdog",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+self-governance = "self_governance.cli:main"
+
