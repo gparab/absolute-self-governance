@@ -92,8 +92,6 @@ class SwarmConfig:
             raise KeyError(key)
 
     def __getattr__(self, name: str) -> Any:
-        if name == "swarm":
-            raise KeyError(name)
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{name}'"
         )
