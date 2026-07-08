@@ -126,10 +126,15 @@ def run_consensus(
                         for a, info in justifications.items()
                     ) + "\n\n"
 
+                from self_governance.agency_agents_adapter import get_persona
+                persona = get_persona(agent)
+                persona_info = f"Agent Persona Guidelines: {persona['prompt']}\nDivision: {persona['division']}\nDescription: {persona['description']}\n"
+
                 if api_key and adapter is not None:
                     prompt = (
                         f"{peer_feedback}"
                         f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
+                        f"{persona_info}"
                         f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
                         "Considering the feedback from your peers (if any), rate the suitability of this agent compared to the others.\n"
                         "Format your response exactly as:\n"

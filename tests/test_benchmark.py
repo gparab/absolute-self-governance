@@ -7,8 +7,8 @@ from self_governance.cli import main
 
 def test_load_benchmark_tasks():
     tasks = load_benchmark_tasks()
-    assert len(tasks) == 6
-    assert tasks[0]["id"] == "task_palindrome"
+    assert len(tasks) == 2
+    assert tasks[0]["id"] == "task_secure_reader"
 
 def test_run_benchmark_mocked(monkeypatch):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
@@ -19,9 +19,9 @@ def test_run_benchmark_mocked(monkeypatch):
                         lambda self, agents, changes, test_target=None: {"status": "completed"})
     
     results = run_benchmark(api_key=None)
-    assert "task_palindrome" in results
-    assert results["task_palindrome"]["baseline"]["passed"] is True
-    assert results["task_palindrome"]["asg"]["passed"] is True
+    assert "task_secure_reader" in results
+    assert results["task_secure_reader"]["baseline"]["passed"] is True
+    assert results["task_secure_reader"]["asg"]["passed"] is True
 
 def test_cli_benchmark(monkeypatch, capsys):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
@@ -35,6 +35,5 @@ def test_cli_benchmark(monkeypatch, capsys):
         main()
         
     captured = capsys.readouterr()
-    assert "Palindrome Validation" in captured.out
-    assert "Memoized Fibonacci" in captured.out
-    assert "Safe Division" in captured.out
+    assert "Secure File Reader" in captured.out
+    assert "Thread Safe Cache" in captured.out

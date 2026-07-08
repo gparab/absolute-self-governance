@@ -23,14 +23,14 @@ def test_lazy_list_indexing():
     # Retrieve elements
     agent_0 = lazy_list[0]
     assert isinstance(agent_0, Agent)
-    assert agent_0.role == "role_0"
+    assert agent_0.role == "Backend Wizard"
     
     agent_2 = lazy_list[2]
-    assert agent_2.role == "role_1"
+    assert agent_2.role == "QA Specialist"
     
     # Negative index
     agent_last = lazy_list[-1]
-    assert agent_last.role == "role_1"
+    assert agent_last.role == "QA Specialist"
     
     # Index out of bounds
     with pytest.raises(IndexError):
@@ -51,13 +51,13 @@ def test_lazy_list_slicing_and_iteration():
     slice_res = lazy_list[1:3]
     assert isinstance(slice_res, list)
     assert len(slice_res) == 2
-    assert slice_res[0].role == "role_0"
-    assert slice_res[1].role == "role_1"
+    assert slice_res[0].role == "Backend Wizard"
+    assert slice_res[1].role == "QA Specialist"
     
     # Iteration
     agents = list(lazy_list)
     assert len(agents) == 5
-    assert [a.role for a in agents] == ["role_0", "role_0", "role_1", "role_1", "role_1"]
+    assert [a.role for a in agents] == ["Backend Wizard", "Backend Wizard", "QA Specialist", "QA Specialist", "QA Specialist"]
 
 def test_swarm_config_serialization_limit():
     # 1. Under limit (<= 1000)
@@ -169,17 +169,17 @@ def test_lazy_list_advanced_slicing():
     # Slice with step
     sliced_step = lazy_list[::2]
     assert len(sliced_step) == 3
-    assert [a.role for a in sliced_step] == ["role_0", "role_1", "role_1"]
+    assert [a.role for a in sliced_step] == ["Backend Wizard", "QA Specialist", "QA Specialist"]
     
     # Reverse slice
     reversed_slice = lazy_list[::-1]
     assert len(reversed_slice) == 5
-    assert [a.role for a in reversed_slice] == ["role_1", "role_1", "role_1", "role_0", "role_0"]
+    assert [a.role for a in reversed_slice] == ["QA Specialist", "QA Specialist", "QA Specialist", "Backend Wizard", "Backend Wizard"]
     
     # Negative bounds slice
     neg_bounds_slice = lazy_list[-3:-1]
     assert len(neg_bounds_slice) == 2
-    assert [a.role for a in neg_bounds_slice] == ["role_1", "role_1"]
+    assert [a.role for a in neg_bounds_slice] == ["QA Specialist", "QA Specialist"]
 
 
 # ==========================================

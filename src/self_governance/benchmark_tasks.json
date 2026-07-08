@@ -1,44 +1,16 @@
 [
   {
-    "id": "task_palindrome",
-    "name": "Palindrome Validation",
-    "description": "Write a function 'is_palindrome(s: str) -> bool' in palindrome.py that returns True if the string is a palindrome, ignoring non-alphanumeric characters and casing.",
-    "test_code": "def test_palindrome():\n    from palindrome import is_palindrome\n    assert is_palindrome('A man, a plan, a canal: Panama') is True\n    assert is_palindrome('raceacar') is False\n    assert is_palindrome('') is True\n",
-    "target_file": "palindrome.py"
+    "id": "task_secure_reader",
+    "name": "Secure File Reader",
+    "description": "Write a function 'read_user_file(filename: str, safe_dir: str) -> Optional[str]' in secure_reader.py that reads the contents of the given file path inside safe_dir. It MUST strictly prevent path traversal attacks (e.g. if filename contains '../' or resolves outside safe_dir, return None). Return the file content as a string, or None if the file doesn't exist or is outside the safe directory.",
+    "test_code": "def test_secure_reader():\n    import os\n    from secure_reader import read_user_file\n    # Setup dummy directory\n    os.makedirs('safe_zone', exist_ok=True)\n    with open('safe_zone/data.txt', 'w') as f: f.write('secret')\n    with open('unsafe.txt', 'w') as f: f.write('evil')\n    \n    # Safe read\n    assert read_user_file('data.txt', 'safe_zone') == 'secret'\n    # Unsafe read trying traversal\n    assert read_user_file('../unsafe.txt', 'safe_zone') is None\n    assert read_user_file('/etc/passwd', 'safe_zone') is None\n",
+    "target_file": "secure_reader.py"
   },
   {
-    "id": "task_fibonacci",
-    "name": "Memoized Fibonacci",
-    "description": "Write a function 'fibonacci_memoized(n: int) -> int' in fibonacci.py that returns the n-th Fibonacci number efficiently using memoization.",
-    "test_code": "def test_fibonacci():\n    from fibonacci import fibonacci_memoized\n    assert fibonacci_memoized(0) == 0\n    assert fibonacci_memoized(1) == 1\n    assert fibonacci_memoized(10) == 55\n    assert fibonacci_memoized(50) == 12586269025\n",
-    "target_file": "fibonacci.py"
-  },
-  {
-    "id": "task_divide",
-    "name": "Safe Division",
-    "description": "Write a function 'safe_divide(a: float, b: float) -> Optional[float]' in division.py that returns the division result or None if division by zero is attempted.",
-    "test_code": "def test_division():\n    from division import safe_divide\n    assert safe_divide(10, 2) == 5.0\n    assert safe_divide(5, 0) is None\n",
-    "target_file": "division.py"
-  },
-  {
-    "id": "task_reverse",
-    "name": "String Reversal",
-    "description": "Write a function 'reverse_string(s: str) -> str' in reverse.py that reverses the input string.",
-    "test_code": "def test_reverse():\n    from reverse import reverse_string\n    assert reverse_string('hello') == 'olleh'\n    assert reverse_string('') == ''\n",
-    "target_file": "reverse.py"
-  },
-  {
-    "id": "task_twosum",
-    "name": "Two Sum Problem",
-    "description": "Write a function 'two_sum(nums: List[int], target: int) -> List[int]' in twosum.py that returns indices of the two numbers such that they add up to target.",
-    "test_code": "def test_twosum():\n    from twosum import two_sum\n    assert two_sum([2, 7, 11, 15], 9) == [0, 1]\n    assert two_sum([3, 2, 4], 6) == [1, 2]\n",
-    "target_file": "twosum.py"
-  },
-  {
-    "id": "task_json",
-    "name": "JSON Validator",
-    "description": "Write a function 'validate_json(s: str) -> bool' in json_val.py that returns True if the string is a valid JSON object or array, and False otherwise.",
-    "test_code": "def test_json():\n    from json_val import validate_json\n    assert validate_json('{\"key\": \"value\"}') is True\n    assert validate_json('invalid json') is False\n",
-    "target_file": "json_val.py"
+    "id": "task_thread_safe_cache",
+    "name": "Thread Safe Cache",
+    "description": "Write a class 'ThreadSafeCache' in cache.py with methods 'set(key, value)' and 'get(key)'. Multiple threads will access this cache concurrently, so you MUST ensure thread-safety using appropriate locks (e.g. threading.Lock). Do not use external libraries.",
+    "test_code": "def test_cache_concurrency():\n    import threading\n    from cache import ThreadSafeCache\n    cache = ThreadSafeCache()\n    errors = []\n    \n    def worker(i):\n        try:\n            cache.set(f'key_{i}', i)\n            assert cache.get(f'key_{i}') == i\n        except Exception as e:\n            errors.append(e)\n            \n    threads = [threading.Thread(target=worker, args=(i,)) for i in range(100)]\n    for t in threads: t.start()\n    for t in threads: t.join()\n    assert len(errors) == 0\n",
+    "target_file": "cache.py"
   }
 ]

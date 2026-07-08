@@ -52,7 +52,16 @@ class LazyList(Sequence):
             raise IndexError("list index out of range")
 
         role_idx = bisect.bisect_right(self._prefix_sums, idx)
-        return Agent(role=f"role_{role_idx}", prompt=f"Prompt for role_{role_idx}")
+        role_map = {
+            0: "Backend Wizard",
+            1: "QA Specialist",
+            2: "Security Auditor"
+        }
+        mapped_role = role_map.get(role_idx, f"role_{role_idx}")
+        
+        from self_governance.agency_agents_adapter import get_persona
+        persona = get_persona(mapped_role)
+        return Agent(role=persona["role"], prompt=persona["prompt"])
 
     def __iter__(self) -> Iterator[Agent]:
         """Iterate over all agents in the list."""

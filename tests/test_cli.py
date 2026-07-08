@@ -14,8 +14,8 @@ def test_cli_dimension(capsys):
     
     assert "swarm" in output_json
     assert len(output_json["swarm"]) == 10
-    assert output_json["swarm"][0]["role"] == "role_0"
-    assert output_json["swarm"][4]["role"] == "role_1"
+    assert output_json["swarm"][0]["role"] == "Backend Wizard"
+    assert output_json["swarm"][4]["role"] == "QA Specialist"
 
 def test_cli_trigger_succession(tmp_path):
     handoff_file = tmp_path / "handoff.md"
