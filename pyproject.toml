@@ -5,6 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "self_governance"
 version = "0.1.0"
+description = "A Python implementation of the Absolute Self-Governance (ASG) architecture for multi-agent software engineering swarms, featuring TETD consensus and memory-efficient dynamic scaling."
+authors = [
+    { name = "Gautam Parab", email = "gautamparab@gmail.com" }
+]
+license = { text = "MIT" }
 dependencies = [
     "pyyaml",
     "watchdog",
