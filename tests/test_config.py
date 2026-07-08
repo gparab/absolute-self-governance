@@ -1,6 +1,5 @@
 import os
 import tempfile
-import pytest
 from self_governance.config import OrchestratorConfig
 
 def test_config_defaults():

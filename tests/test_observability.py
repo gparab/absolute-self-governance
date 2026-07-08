@@ -1,16 +1,13 @@
-import os
 import json
 import logging
 from fastapi.testclient import TestClient
 from self_governance.telemetry import (
-    setup_telemetry,
     new_correlation_id,
     get_correlation_id,
     set_correlation_id,
     StructuredJSONFormatter
 )
 from self_governance.github_app import app
-from self_governance.metrics import ASG_WEBHOOK_EVENTS
 
 def test_correlation_id_context():
     cid = new_correlation_id()
@@ -59,7 +56,7 @@ def test_webhook_event_increments_metric(monkeypatch):
     client = TestClient(app)
     
     # Before request
-    before_text = client.get("/metrics").text
+    client.get("/metrics").text
     
     # Post issue payload
     payload = {

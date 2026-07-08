@@ -1,14 +1,10 @@
 import os
-import sys
 import time
-import shutil
 import tempfile
 import threading
 import yaml
-import pytest
 from self_governance.nudger import ContinuousNudger
 from self_governance.dimensioning import dimension_swarm
-from self_governance.consensus import run_consensus
 
 def test_dimensioning_perf_and_memory():
     print("--- Stress Testing Dimensioning Performance ---")

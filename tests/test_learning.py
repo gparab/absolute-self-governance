@@ -1,9 +1,7 @@
 import os
-import json
 import pytest
 from self_governance.learning import (
     get_learning_state,
-    save_learning_state,
     track_learning_feedback,
     LEARNING_STATE_FILE
 )

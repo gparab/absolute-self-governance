@@ -1,6 +1,5 @@
 import os
 import time
-import pytest
 from self_governance.base_adapter import BaseExecutionAdapter
 from self_governance.execution import MockExecutionAdapter, dispatch_swarm_execution
 from self_governance.gemini_adapter import GeminiExecutionAdapter

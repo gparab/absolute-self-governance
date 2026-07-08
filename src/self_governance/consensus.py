@@ -2,7 +2,6 @@ import os
 import random
 import math
 from typing import List, Optional, Any
-from self_governance.gemini_adapter import call_gemini
 from self_governance.tracing import tracer
 
 

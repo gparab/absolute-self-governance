@@ -1,10 +1,6 @@
-import os
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from self_governance.db import Base, Tenant, SuccessionSession, TokenUsage, get_db, engine, SessionLocal
-from self_governance.auth import authenticate_tenant
+from self_governance.db import Base, Tenant, SuccessionSession, TokenUsage, engine, SessionLocal
 from self_governance.billing import record_usage
 from self_governance.github_app import app
 

@@ -1,6 +1,5 @@
-import math
 import pytest
-from self_governance.consensus import run_consensus, ConsensusResult
+from self_governance.consensus import run_consensus
 
 def test_consensus_deduplication():
     # Roster with duplicate elements preserving order

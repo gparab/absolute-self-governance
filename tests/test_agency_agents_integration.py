@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock
 from self_governance.agency_agents_adapter import get_persona
 from self_governance.dimensioning import dimension_swarm

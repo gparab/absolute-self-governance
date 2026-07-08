@@ -1,7 +1,5 @@
 import sys
-import os
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from self_governance.benchmark import run_benchmark, load_benchmark_tasks
 from self_governance.cli import main
 
