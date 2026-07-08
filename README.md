@@ -158,6 +158,27 @@ graph TD
 4. **Log Rotation**: Rotation metadata is logged to `roster_rotation_log.md`.
 5. **Prompt Drafting**: A JSON configuration matching the Appendix D schema is nested and written into `prompt_draft.md` along with instructions to guide the new swarm.
 
+### Human-in-the-Loop (HITL) Dry-Run Mode
+To enable cost controls and safety checks, the orchestrator includes a Human-in-the-Loop approval gate. When `dry_run: true` is configured:
+1. **Plan Generation**: When a handoff file receives status `COMPLETED`, the Nudger generates a `dry_run_plan.json` file in the workspace containing swarm allocations, role metrics, and cost estimates.
+2. **Approval Gate**: The Nudger pauses, awaiting manual approval.
+3. **Execution**: Succession and consensus are only triggered when the user updates the status in `handoff.md` (or the status in `dry_run_plan.json`) to `APPROVED`.
+
+### Structured JSON Outputs
+The developer swarm adapter natively integrates with Gemini's JSON structured schemas to enforce schema correctness for file generation. Code edits and files are returned as a strictly typed JSON object:
+```json
+{
+  "explanation": "Brief description of changes",
+  "written_files": [
+    {
+      "filepath": "path/to/file.py",
+      "content": "Full source code..."
+    }
+  ]
+}
+```
+A legacy fallback parser handles unstructured text/markdown fence blocks in mock environments, guaranteeing backward compatibility.
+
 ---
 
 ## 4. Project Structure
@@ -271,7 +292,7 @@ print(json.dumps(swarm_config.dict(), indent=2))
 
 ### Running the Test Suite
 
-The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **125 total test cases**.
+The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **129 total test cases**.
 
 #### Run all tests using `pytest`
 ```bash
