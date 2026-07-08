@@ -173,7 +173,7 @@ async def github_webhook(
                     req_vector[1] = 4.0
 
                 # Dynamic staffing: Staffing size is directly determined by the complexity vector
-                transition_matrix = [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]]
+                transition_matrix = nudger.config.webhook_matrix
                 swarm_config = dimension_swarm(req_vector, transition_matrix)
                 candidates = [agent.role for agent in swarm_config.swarm]
 

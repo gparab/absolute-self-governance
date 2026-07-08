@@ -24,6 +24,12 @@ DEFAULT_CONFIG = {
         "default_matrix": [
             [1.0, 0.5],
             [0.0, 1.0]
+        ],
+        "webhook_matrix": [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.5, 0.5],
+            [0.2, 0.8]
         ]
     }
 }
@@ -90,3 +96,12 @@ class OrchestratorConfig:
     @property
     def default_matrix(self) -> List[List[float]]:
         return self.config_data["dimensioning"]["default_matrix"]
+
+    @property
+    def webhook_matrix(self) -> List[List[float]]:
+        return self.config_data["dimensioning"].get("webhook_matrix", [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.5, 0.5],
+            [0.2, 0.8]
+        ])
