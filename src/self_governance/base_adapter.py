@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from self_governance.models import Agent
 
 class BaseExecutionAdapter(ABC):
@@ -24,7 +24,7 @@ class BaseExecutionAdapter(ABC):
         pass
 
     @abstractmethod
-    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any], test_target: Optional[str] = None) -> Dict[str, Any]:
         """Execute test suites (e.g. pytest) and return outcomes/tracebacks."""
         pass
 

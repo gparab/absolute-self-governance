@@ -6,14 +6,14 @@ import urllib.error
 import time
 import subprocess
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from self_governance.base_adapter import BaseExecutionAdapter
 from self_governance.models import Agent
 
 logger = logging.getLogger("self_governance.gemini_adapter")
 
-def call_gemini(prompt: str, api_key: str) -> str:
-    """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
+def call_gemini_with_metadata(prompt: str, api_key: str) -> Dict[str, Any]:
+    """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     data = {
@@ -31,11 +31,22 @@ def call_gemini(prompt: str, api_key: str) -> str:
             with urllib.request.urlopen(req, timeout=15) as response:
                 res_data = json.loads(response.read().decode())
                 candidates = res_data.get("candidates", [])
+                usage_metadata = res_data.get("usageMetadata", {})
+                prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+                completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+                
+                text = ""
                 if candidates:
                     content = candidates[0].get("content", {})
                     parts = content.get("parts", [])
                     if parts:
-                        return parts[0].get("text", "").strip()
+                        text = parts[0].get("text", "").strip()
+                
+                return {
+                    "text": text,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens
+                }
         except urllib.error.HTTPError as he:
             if he.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
                 logger.warning("Gemini API returned transient error %s. Retrying in %s seconds...", he.code, delay)
@@ -52,7 +63,11 @@ def call_gemini(prompt: str, api_key: str) -> str:
             else:
                 logger.error("Failed to query Gemini API: %s", e)
                 break
-    return ""
+    return {"text": "", "prompt_tokens": 0, "completion_tokens": 0}
+
+def call_gemini(prompt: str, api_key: str) -> str:
+    """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
+    return call_gemini_with_metadata(prompt, api_key)["text"]
 
 class GeminiExecutionAdapter(BaseExecutionAdapter):
     """
@@ -60,8 +75,19 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
     """
     def __init__(self, api_key: str = None) -> None:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not found in environment. Gemini execution runs will use mock fallbacks.")
+
+    def _call_gemini_and_track(self, prompt: str) -> str:
+        """Call Gemini and accumulate token counts for pricing calculations."""
+        if os.getenv("TESTING") == "True":
+            return call_gemini(prompt, self.api_key)
+        res = call_gemini_with_metadata(prompt, self.api_key)
+        self.prompt_tokens += res.get("prompt_tokens", 0)
+        self.completion_tokens += res.get("completion_tokens", 0)
+        return res.get("text", "")
 
     def _run_or_fallback(self, prompt: str, fallback_msg: str) -> Dict[str, Any]:
         """Verify API key presence and return Gemini output or a fallback message."""
@@ -70,7 +96,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "status": "completed",
                 "output": fallback_msg
             }
-        response_text = call_gemini(prompt, self.api_key)
+        response_text = self._call_gemini_and_track(prompt)
         return {
             "status": "completed",
             "output": response_text or fallback_msg
@@ -85,7 +111,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             }
         
         prompt = f"Decompose the following coding task into a brief list of sequential development steps: {task_description}. Return only the steps as a JSON list of strings."
-        response_text = call_gemini(prompt, self.api_key)
+        response_text = self._call_gemini_and_track(prompt)
         try:
             steps = json.loads(response_text)
         except Exception:
@@ -113,7 +139,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             "code contents here\n"
             "```"
         )
-        response_text = call_gemini(prompt, self.api_key)
+        response_text = self._call_gemini_and_track(prompt)
         
         # API failure safeguard
         if not response_text:
@@ -194,7 +220,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             
         if self.api_key:
             prompt = f"Analyze the following linter output and explain key violations to fix: {lint_output}"
-            response_text = call_gemini(prompt, self.api_key)
+            response_text = self._call_gemini_and_track(prompt)
             return {
                 "status": status,
                 "output": response_text,
@@ -205,25 +231,29 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             "output": lint_output or "Gemini Review: Code conforms to target standards."
         }
 
-    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any], test_target: Optional[str] = None) -> Dict[str, Any]:
         logger.info("Gemini Tester Swarm: Initiating validation test suites...")
         test_output = ""
         status = "failed"
         
         # Try running pytest inside a containerized sandbox
         try:
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "--network", "none",
+                "--read-only",
+                "--tmpfs", "/tmp",
+                "--tmpfs", "/app/.pytest_cache",
+                "-v", f"{os.path.abspath('.')}:/app",
+                "-w", "/app",
+                "self-governance-image:latest",
+                "pytest"
+            ]
+            if test_target:
+                docker_cmd.append(test_target)
+                
             res = subprocess.run(
-                [
-                    "docker", "run", "--rm",
-                    "--network", "none",
-                    "--read-only",
-                    "--tmpfs", "/tmp",
-                    "--tmpfs", "/app/.pytest_cache",
-                    "-v", f"{os.path.abspath('.')}:/app",
-                    "-w", "/app",
-                    "self-governance-image:latest",
-                    "pytest"
-                ],
+                docker_cmd,
                 capture_output=True, text=True, timeout=30
             )
             test_output = res.stdout + "\n" + res.stderr
@@ -233,8 +263,11 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             # Fallback to local subprocess pytest on the host process
             logger.warning("Docker sandbox unavailable. Falling back to host subprocess test runner.")
             try:
+                test_cmd = [sys.executable, "-m", "pytest"]
+                if test_target:
+                    test_cmd.append(test_target)
                 res = subprocess.run(
-                    [sys.executable, "-m", "pytest"],
+                    test_cmd,
                     capture_output=True,
                     text=True,
                     timeout=30
@@ -248,7 +281,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 
         if self.api_key:
             prompt = f"Review the test output and state if any failures require fixes: {test_output}"
-            response_text = call_gemini(prompt, self.api_key)
+            response_text = self._call_gemini_and_track(prompt)
             return {
                 "status": status,
                 "output": response_text,
@@ -273,7 +306,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Analyze the following bandit security scan report and highlight critical vulnerability risks: {sec_output}"
-            response_text = call_gemini(prompt, self.api_key)
+            response_text = self._call_gemini_and_track(prompt)
             return {
                 "status": status,
                 "output": response_text,

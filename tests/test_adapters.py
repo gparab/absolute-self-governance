@@ -129,12 +129,11 @@ def test_path_traversal_prefix_bug(monkeypatch):
     base_dir = os.path.abspath(".")
     malicious_path = base_dir + "-malicious/escaped.py"
     
-    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
-        "### WRITE_FILE: " + malicious_path + "\n"
-        "```\n"
-        "malicious_code()\n"
-        "```"
-    ))
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini_with_metadata", lambda prompt, key: {
+        "text": "### WRITE_FILE: " + malicious_path + "\n```\nmalicious_code()\n```",
+        "prompt_tokens": 100,
+        "completion_tokens": 50
+    })
     
     monkeypatch.setenv("TESTING", "False")
     

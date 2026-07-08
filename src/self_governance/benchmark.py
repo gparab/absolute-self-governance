@@ -51,12 +51,12 @@ def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     written_files = exec_res.get("written_files", [])
     
     # Create test file on disk
-    test_filepath = f"test_{task['target_file']}"
+    test_filepath = f"bench_test_{task['target_file']}"
     with open(test_filepath, "w", encoding="utf-8") as f:
         f.write(task["test_code"])
         
     # Run tests on host
-    test_res = adapter.execute_tests([], {})
+    test_res = adapter.execute_tests([], {}, test_target=test_filepath)
     passed = test_res.get("status") == "completed"
     
     # Cleanup files
@@ -71,11 +71,13 @@ def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
         pass
         
     latency = time.time() - start_time
+    # Gemini 2.5 Flash pricing: $0.075 / 1M input, $0.30 / 1M output
+    cost = (adapter.prompt_tokens * 0.000000075) + (adapter.completion_tokens * 0.0000003)
     
     return {
         "passed": passed,
         "latency_sec": round(latency, 2),
-        "estimated_cost_usd": 0.00015 if api_key else 0.0
+        "estimated_cost_usd": round(cost, 6)
     }
 
 def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
@@ -108,7 +110,7 @@ def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     written_files = exec_res.get("written_files", [])
     
     # Create test file on disk
-    test_filepath = f"test_{task['target_file']}"
+    test_filepath = f"bench_test_{task['target_file']}"
     with open(test_filepath, "w", encoding="utf-8") as f:
         f.write(task["test_code"])
         
@@ -117,7 +119,7 @@ def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     adapter.run_security_scan(agents, exec_res)
     
     # Run test verification sandbox
-    test_res = adapter.execute_tests(agents, {})
+    test_res = adapter.execute_tests(agents, {}, test_target=test_filepath)
     passed = test_res.get("status") == "completed"
     
     # Cleanup files
@@ -132,9 +134,10 @@ def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
         pass
         
     latency = time.time() - start_time
+    cost = (adapter.prompt_tokens * 0.000000075) + (adapter.completion_tokens * 0.0000003)
     
     return {
         "passed": passed,
         "latency_sec": round(latency, 2),
-        "estimated_cost_usd": 0.00065 if api_key else 0.0
+        "estimated_cost_usd": round(cost, 6)
     }

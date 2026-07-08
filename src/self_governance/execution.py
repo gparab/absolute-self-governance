@@ -29,7 +29,7 @@ class MockExecutionAdapter(BaseExecutionAdapter):
             "output": "Code reviewed. Code quality scores meet target standards."
         }
 
-    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_tests(self, agents: List[Agent], changes: Dict[str, Any], test_target: Optional[str] = None) -> Dict[str, Any]:
         return {
             "status": "completed",
             "output": "All test cases verify successful compilation."

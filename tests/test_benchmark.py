@@ -16,7 +16,7 @@ def test_run_benchmark_mocked(monkeypatch):
     monkeypatch.setattr(GeminiExecutionAdapter, "execute_development", 
                         lambda self, agents, plan: {"status": "completed", "written_files": []})
     monkeypatch.setattr(GeminiExecutionAdapter, "execute_tests", 
-                        lambda self, agents, changes: {"status": "completed"})
+                        lambda self, agents, changes, test_target=None: {"status": "completed"})
     
     results = run_benchmark(api_key=None)
     assert "task_palindrome" in results
@@ -28,7 +28,7 @@ def test_cli_benchmark(monkeypatch, capsys):
     monkeypatch.setattr(GeminiExecutionAdapter, "execute_development", 
                         lambda self, agents, plan: {"status": "completed", "written_files": []})
     monkeypatch.setattr(GeminiExecutionAdapter, "execute_tests", 
-                        lambda self, agents, changes: {"status": "completed"})
+                        lambda self, agents, changes, test_target=None: {"status": "completed"})
     
     test_args = ["self-governance", "benchmark"]
     with patch.object(sys, "argv", test_args):
