@@ -119,3 +119,34 @@ def test_webhook_adds_db_records(monkeypatch):
     assert len(usages) == 1
     assert usages[0].prompt_tokens == 500
     db.close()
+
+def test_create_tenant_endpoint():
+    client = TestClient(app)
+    response = client.post("/tenants", json={"name": "New Swarm Tenant"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "tenant_id" in data
+    assert "api_key" in data
+    assert "stripe_customer_id" in data
+    
+    tenant_id = data["tenant_id"]
+    api_key = data["api_key"]
+    
+    response_dash = client.get("/dashboard", headers={"Authorization": f"Bearer {api_key}"})
+    assert response_dash.status_code == 200
+    assert f"Tenant Context: {tenant_id}" in response_dash.text
+
+def test_rate_limiting_enforcement():
+    from self_governance.auth import rate_limit_cache
+    rate_limit_cache.clear()
+    
+    client = TestClient(app)
+    import time
+    now = time.time()
+    rate_limit_cache["tenantA"] = [now] * 100
+    
+    response = client.get("/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"})
+    assert response.status_code == 429
+    assert "Rate limit exceeded" in response.json()["detail"]
+    
+    rate_limit_cache.clear()

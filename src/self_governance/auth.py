@@ -52,3 +52,29 @@ async def authenticate_tenant(
                     return tenant
 
     raise HTTPException(status_code=401, detail="Invalid authorization token")
+
+import time
+from collections import defaultdict
+
+# Simple in-memory rate limiter cache: {tenant_id: [timestamps]}
+rate_limit_cache = defaultdict(list)
+RATE_LIMIT_MAX_REQUESTS = 100  # allow up to 100 requests per minute by default
+RATE_LIMIT_WINDOW = 60.0       # 60 seconds
+
+def rate_limit_tenant(tenant: Tenant = Depends(authenticate_tenant)) -> Tenant:
+    """Enforces per-tenant rate limiting."""
+    now = time.time()
+    timestamps = rate_limit_cache[tenant.id]
+    
+    # filter out timestamps older than the window
+    active_timestamps = [ts for ts in timestamps if now - ts < RATE_LIMIT_WINDOW]
+    
+    if len(active_timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 100 requests per minute allowed."
+        )
+        
+    active_timestamps.append(now)
+    rate_limit_cache[tenant.id] = active_timestamps
+    return tenant

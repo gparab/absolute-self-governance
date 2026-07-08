@@ -13,7 +13,7 @@ from self_governance.dimensioning import dimension_swarm
 from self_governance.telemetry import new_correlation_id, get_correlation_id
 from self_governance.metrics import ASG_WEBHOOK_EVENTS
 from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage
-from self_governance.auth import authenticate_tenant
+from self_governance.auth import authenticate_tenant, rate_limit_tenant, hash_key
 from self_governance.billing import record_usage
 from self_governance.tracing import tracer
 
@@ -36,7 +36,7 @@ def metrics():
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def get_dashboard(
-    tenant: Tenant = Depends(authenticate_tenant),
+    tenant: Tenant = Depends(rate_limit_tenant),
     db: Session = Depends(get_db)
 ):
     sessions = db.query(SuccessionSession).filter(SuccessionSession.tenant_id == tenant.id).order_by(SuccessionSession.id.desc()).all()
@@ -76,6 +76,39 @@ def get_dashboard(
     
     return HTMLResponse(content=html)
 
+from pydantic import BaseModel
+import secrets
+
+class TenantCreateRequest(BaseModel):
+    name: str
+
+@app.post("/tenants")
+def create_tenant(payload: TenantCreateRequest, db: Session = Depends(get_db)):
+    """Self-serve API-key issuance flow for new tenants."""
+    tenant_id = "t" + secrets.token_hex(4)
+    secret_key = secrets.token_hex(16)
+    api_key = f"tenant_{tenant_id}_{secret_key}"
+    api_key_hash = hash_key(api_key)
+    
+    stripe_customer_id = f"cus_{secrets.token_hex(8)}"
+    
+    tenant = Tenant(
+        id=tenant_id,
+        name=payload.name,
+        api_key_hash=api_key_hash,
+        stripe_customer_id=stripe_customer_id
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    
+    return {
+        "tenant_id": tenant_id,
+        "api_key": api_key,
+        "stripe_customer_id": stripe_customer_id,
+        "msg": "Store the api_key safely. It will not be shown again."
+    }
+
 # Load configuration and watcher context
 config = OrchestratorConfig()
 nudger = ContinuousNudger(working_directory=".", config=config)
@@ -104,7 +137,7 @@ async def verify_signature(request: Request):
 @app.post("/webhook")
 async def github_webhook(
     request: Request,
-    tenant: Tenant = Depends(authenticate_tenant),
+    tenant: Tenant = Depends(rate_limit_tenant),
     db: Session = Depends(get_db)
 ):
     """
