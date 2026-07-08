@@ -41,7 +41,8 @@ def run_consensus(
     delta: float = 0.5,
     seed: Optional[int] = None,
     adapter: Optional[Any] = None,
-    requirements: Optional[List[float]] = None
+    requirements: Optional[List[float]] = None,
+    T_max: float = 2.0
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -213,7 +214,7 @@ def run_consensus(
 
             # Update temp and tau for the next iteration if iteration threshold is met
             if iteration >= B:
-                temp += gamma
+                temp = min(T_max, temp + gamma)
                 tau = max(7.0, tau - delta)
 
             iteration += 1

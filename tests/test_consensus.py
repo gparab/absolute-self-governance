@@ -127,4 +127,10 @@ def test_consensus_statistical_distribution():
     assert 420 <= immediate_agreements <= 580, f"Immediate agreements count {immediate_agreements} not in [420, 580]"
 
 
+def test_consensus_temperature_clamped_by_t_max():
+    # Verify that simulation temperature does not exceed T_max
+    res = run_consensus(["agent_A"], B=1, target_tau=20.0, initial_temp=1.0, gamma=2.0, T_max=1.5)
+    assert res.final_temperature == 1.5
+
+
 
