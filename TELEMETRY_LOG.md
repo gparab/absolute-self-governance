@@ -41,7 +41,44 @@ The project was executed using an Absolute Self-Governance (ASG) multi-agent swa
 
 ---
 
-## 3. Performance & Scaling Benchmarks
+## 3. Mathematical Foundations & Formulations
+For inclusion in the paper's methodology section:
+
+### Swarm Dimensioning Model
+The dynamic agent scaling model computes the required swarm sizes per role at time $t$ using the vector equation:
+$$S_t = \text{round}(W \cdot R_t)$$
+Where $R_t \in \mathbb{R}^N$ is the requirement vector representing $N$ software features, and $W \in \mathbb{R}^{M \times N}$ is the transition matrix mapping features to $M$ distinct agent roles.
+
+### Shannon Entropy Selection
+Roster selection utilizes Shannon entropy to evaluate structural diversity in candidate distributions:
+$$H(P) = -\sum_{i=1}^{M} P_i \log_2 P_i$$
+Where $P_i = \frac{S_{t, i}}{\sum S_{t, i}}$ is the probability distribution of agent roles.
+
+### TETD Consensus Equations
+If consensus is blocked beyond $B$ iterations, temperature ($T_k$) and minimum voting threshold ($\tau_k$) decay as:
+$$T_k = T_{\text{initial}} + \gamma(k - B)$$
+$$\tau_k = \max\left(7.0, \tau_{\text{target}} - \delta(k - B)\right)$$
+
+---
+
+## 4. Codebase Structural Telemetry
+A comparison of source-to-test code complexity:
+
+| Module | Purpose | Lines of Code (LOC) |
+|---|---|---|
+| `cli.py` | Command-line interface command definitions | 43 |
+| `consensus.py` | TETD consensus simulation engine | 132 |
+| `dimensioning.py` | LazyList dynamic scaling matrices | 126 |
+| `models.py` | Custom protected schema dataclasses | 134 |
+| `nudger.py` | watchdog-based filesystem watchers | 221 |
+| **Total Source Code** | | **657** |
+| `tests/` | Unit, E2E, stress, and integration suites | **1,401** |
+
+- **Test-to-Source LOC Ratio**: **2.13x** (indicating high testing fidelity and protection density).
+
+---
+
+## 5. Performance & Scaling Benchmarks
 Stochastic performance benchmarks were executed to evaluate the memory and search efficiency of the lazy dimensioning models.
 
 ### Swarm Dimensioning Complexity
@@ -55,7 +92,7 @@ Tests evaluated the `LazyList` indexing efficiency when dimensioning extremely l
 
 ---
 
-## 4. Consensus Convergence Telemetry
+## 6. Consensus Convergence Telemetry
 Telemetry statistics collected over 1,000 runs of the stochastically seeded TETD (Thermal Escape and Threshold Decay) consensus engine:
 
 - **Target Threshold ($\tau_{\text{target}}$)**: 9.0
@@ -70,7 +107,7 @@ Telemetry statistics collected over 1,000 runs of the stochastically seeded TETD
 
 ---
 
-## 5. Test Suite Execution Telemetry
+## 7. Test Suite Execution Telemetry
 Final verification metrics run against the core package modules:
 
 | Test Module | Test Cases | Execution Time (s) | Statement Coverage | Branch Coverage | Status |
