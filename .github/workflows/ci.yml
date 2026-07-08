@@ -24,8 +24,23 @@ jobs:
     - name: Install dependencies
       run: uv sync
 
+    - name: Run ruff check
+      run: uv run ruff check .
+
+    - name: Run mypy typecheck
+      run: uv run mypy src/
+
+    - name: Run bandit SAST
+      run: uv run bandit -r src/
+
+    - name: Run pip-audit
+      run: uv run pip-audit
+
     - name: Run pytest with coverage
       run: uv run pytest --cov=src/self_governance/ --cov-report=xml --cov-branch
+
+    - name: Smoke-build Docker Image
+      run: docker build -t self-governance-image:latest .
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4

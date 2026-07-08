@@ -152,5 +152,52 @@ def test_gemini_empty_response(monkeypatch):
     assert res["status"] == "failed"
     assert "Failed" in res["output"]
 
+def test_gemini_parser_fuzzing(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    
+    # 1. Test malformed code fences
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "### WRITE_FILE: test_malformed_fence.py\n"
+        "``\n" # Missing third backtick
+        "def bad(): pass\n"
+        "``"
+    ))
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Malformed fence test"})
+    assert res["status"] == "completed"
+    assert len(res["written_files"]) == 0
+
+    # 2. Test multi-nested code blocks
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "### WRITE_FILE: test_nested.py\n"
+        "```python\n"
+        "def nested():\n"
+        "    \"\"\"Nested block test\"\"\"\n"
+        "    ```nested markdown```\n"
+        "```"
+    ))
+    res = adapter.execute_development([], {"task": "Nested fence test"})
+    assert res["status"] == "completed"
+    assert len(res["written_files"]) == 1
+    try:
+        os.remove("test_nested.py")
+    except Exception:
+        pass
+
+    # 3. Test huge payloads stream
+    huge_code = "def large_func():\n" + "    pass\n" * 5000
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "### WRITE_FILE: test_huge.py\n"
+        "```python\n" + huge_code + "```"
+    ))
+    res = adapter.execute_development([], {"task": "Huge payload test"})
+    assert res["status"] == "completed"
+    assert len(res["written_files"]) == 1
+    try:
+        os.remove("test_huge.py")
+    except Exception:
+        pass
+
+
 
 

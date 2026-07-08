@@ -28,6 +28,10 @@ dev = [
     "pytest",
     "pytest-cov",
     "httpx",
+    "ruff",
+    "bandit",
+    "pip-audit",
+    "mypy",
 ]
 
 

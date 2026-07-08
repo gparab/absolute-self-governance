@@ -150,8 +150,16 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
                 i += 1
                 # Find start of code fence
-                while i < len(lines) and not lines[i].strip().startswith("```"):
+                fence_found = False
+                while i < len(lines):
+                    if lines[i].strip().startswith("```"):
+                        fence_found = True
+                        break
                     i += 1
+                if not fence_found:
+                    logger.warning("No valid code fence found for file: %s", filepath)
+                    i += 1
+                    continue
                 i += 1 # Skip ``` line
                 
                 content_lines = []
@@ -175,27 +183,59 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def review_code(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Reviewer Swarm: Inspecting development changes...")
-        prompt = f"Review the following code changes and point out any bugs: {json.dumps(changes)}"
-        return self._run_or_fallback(prompt, "Gemini Review: Code conforms to target standards.")
+        try:
+            res = subprocess.run(["ruff", "check", "."], capture_output=True, text=True, timeout=15)
+            lint_output = res.stdout + "\n" + res.stderr
+            status = "completed" if res.returncode == 0 else "failed"
+        except Exception as e:
+            status = "failed"
+            lint_output = f"Linter execution failed: {e}"
+            logger.error("Failed to run ruff linter: %s", e)
+            
+        if self.api_key:
+            prompt = f"Analyze the following linter output and explain key violations to fix: {lint_output}"
+            response_text = call_gemini(prompt, self.api_key)
+            return {
+                "status": status,
+                "output": response_text,
+                "linter_output": lint_output
+            }
+        return {
+            "status": status,
+            "output": lint_output or "Gemini Review: Code conforms to target standards."
+        }
 
     def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Tester Swarm: Initiating validation test suites...")
+        test_output = ""
+        status = "failed"
         
+        # Try running pytest inside a containerized sandbox
         try:
             res = subprocess.run(
-                [sys.executable, "-m", "pytest"],
-                capture_output=True,
-                text=True,
-                timeout=30
+                ["docker", "run", "--rm", "-v", f"{os.path.abspath('.')}:/app", "-w", "/app", "self-governance-image:latest", "pytest"],
+                capture_output=True, text=True, timeout=30
             )
             test_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"
-            logger.info("Subprocess test runner finished with code %s", res.returncode)
-        except Exception as e:
-            status = "failed"
-            test_output = f"Test execution failed: {e}"
-            logger.error("Failed to run subprocess test suite: %s", e)
-            
+            logger.info("Containerized test sandbox execution finished with code %s", res.returncode)
+        except Exception:
+            # Fallback to local subprocess pytest on the host process
+            logger.warning("Docker sandbox unavailable. Falling back to host subprocess test runner.")
+            try:
+                res = subprocess.run(
+                    [sys.executable, "-m", "pytest"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                test_output = res.stdout + "\n" + res.stderr
+                status = "completed" if res.returncode == 0 else "failed"
+            except Exception as e:
+                status = "failed"
+                test_output = f"Test execution failed: {e}"
+                logger.error("Failed to run host subprocess test suite: %s", e)
+                
         if self.api_key:
             prompt = f"Review the test output and state if any failures require fixes: {test_output}"
             response_text = call_gemini(prompt, self.api_key)
@@ -212,8 +252,27 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def run_security_scan(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Security Swarm: Running static security checks...")
-        prompt = f"Analyze these changes for security risks (SQLi, XSS, insecure dependency, etc.): {json.dumps(changes)}"
-        return self._run_or_fallback(prompt, "Gemini Security: Ruff/Bandit scans returned no findings.")
+        try:
+            res = subprocess.run(["bandit", "-r", "src/"], capture_output=True, text=True, timeout=15)
+            sec_output = res.stdout + "\n" + res.stderr
+            status = "completed" if res.returncode == 0 else "failed"
+        except Exception as e:
+            status = "failed"
+            sec_output = f"Security scan failed: {e}"
+            logger.error("Failed to run bandit scanner: %s", e)
+
+        if self.api_key:
+            prompt = f"Analyze the following bandit security scan report and highlight critical vulnerability risks: {sec_output}"
+            response_text = call_gemini(prompt, self.api_key)
+            return {
+                "status": status,
+                "output": response_text,
+                "security_output": sec_output
+            }
+        return {
+            "status": status,
+            "output": sec_output or "Gemini Security: Ruff/Bandit scans returned no findings."
+        }
 
     def generate_documentation(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Documentation Swarm: Generating project descriptions...")
