@@ -213,7 +213,17 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         # Try running pytest inside a containerized sandbox
         try:
             res = subprocess.run(
-                ["docker", "run", "--rm", "-v", f"{os.path.abspath('.')}:/app", "-w", "/app", "self-governance-image:latest", "pytest"],
+                [
+                    "docker", "run", "--rm",
+                    "--network", "none",
+                    "--read-only",
+                    "--tmpfs", "/tmp",
+                    "--tmpfs", "/app/.pytest_cache",
+                    "-v", f"{os.path.abspath('.')}:/app",
+                    "-w", "/app",
+                    "self-governance-image:latest",
+                    "pytest"
+                ],
                 capture_output=True, text=True, timeout=30
             )
             test_output = res.stdout + "\n" + res.stderr

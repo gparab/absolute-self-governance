@@ -37,7 +37,7 @@ jobs:
       run: uv run pip-audit
 
     - name: Run pytest with coverage
-      run: uv run pytest --cov=src/self_governance/ --cov-report=xml --cov-branch
+      run: uv run pytest --cov=src/self_governance/ --cov-report=xml --cov-branch --cov-fail-under=90
 
     - name: Smoke-build Docker Image
       run: docker build -t self-governance-image:latest .

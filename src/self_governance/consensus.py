@@ -2,6 +2,7 @@ import os
 import random
 import math
 from typing import List, Optional
+from self_governance.gemini_adapter import call_gemini
 
 
 class ConsensusResult(tuple):
@@ -102,8 +103,12 @@ def run_consensus(
         scores = {}
         for agent in initial_roster:
             if api_key:
-                from self_governance.gemini_adapter import call_gemini
-                prompt = f"Rate the suitability of the agent role '{agent}' for software engineering tasks on a scale from 1.0 to 10.0. Return only a floating point number."
+                prompt = (
+                    f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
+                    f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
+                    "Evaluate the suitability of this agent compared to the others and rate it on a scale from 1.0 to 10.0. "
+                    "Return only a floating point number (e.g., 8.5)."
+                )
                 res = call_gemini(prompt, api_key)
                 try:
                     score = float(res)
