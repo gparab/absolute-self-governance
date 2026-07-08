@@ -178,8 +178,8 @@ def test_nudger_large_swarm_stream_serialization(tmp_path):
     parsed = json.loads(serialized_str)
     assert "swarm" in parsed
     assert len(parsed["swarm"]) == 25000
-    assert parsed["swarm"][0]["role"] == "role_0"
-    assert parsed["swarm"][15000]["role"] == "role_1"
+    assert parsed["swarm"][0]["role"] == "Backend Wizard"
+    assert parsed["swarm"][15000]["role"] == "QA Specialist"
 
 def test_nudger_propagates_critical_exceptions(tmp_path):
     from unittest.mock import patch
