@@ -220,3 +220,18 @@ def test_dimensioning_float_edge_cases():
     # Infinity values
     with pytest.raises((OverflowError, ValueError, TypeError)):
         dimension_swarm([1.0], [[float('inf')]])
+
+def test_agent_capabilities():
+    """Verify capabilities can be populated, accessed, and serialized."""
+    agent = Agent(role="architect", prompt="Design system", capabilities=["code_review", "uml_gen"])
+    assert agent.role == "architect"
+    assert agent["capabilities"] == ["code_review", "uml_gen"]
+    
+    # Try item assignment
+    agent["capabilities"] = ["testing"]
+    assert agent.capabilities == ["testing"]
+
+    # Serialization check
+    d = agent.dict()
+    assert d["capabilities"] == ["testing"]
+

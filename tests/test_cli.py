@@ -52,7 +52,10 @@ def test_cli_run_nudger():
         with patch.object(sys, "argv", test_args):
             main()
             
-        mock_nudger_class.assert_called_once_with(working_directory="/dummy/path")
+        mock_nudger_class.assert_called_once()
+        args, kwargs = mock_nudger_class.call_args
+        assert kwargs["working_directory"] == "/dummy/path"
+        assert "config" in kwargs
         mock_instance.watch_handoff.assert_called_once()
 
 def test_cli_invalid_arguments():

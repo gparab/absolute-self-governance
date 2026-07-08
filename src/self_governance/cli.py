@@ -3,9 +3,11 @@ import sys
 import json
 from self_governance.nudger import ContinuousNudger, write_swarm_config_to_stream
 from self_governance.dimensioning import dimension_swarm
+from self_governance.config import OrchestratorConfig
 
 def main():
     parser = argparse.ArgumentParser(description="Absolute Self-Governance CLI")
+    parser.add_argument("--config", help="Path to config YAML file")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # run-nudger subcommand
@@ -23,21 +25,23 @@ def main():
     parser_dim.add_argument("-m", "--matrix", required=True, help="Matrix as a JSON string")
 
     args = parser.parse_args()
+    config = OrchestratorConfig(args.config)
 
     if args.subcommand == "run-nudger":
-        nudger = ContinuousNudger(working_directory=args.workdir)
+        nudger = ContinuousNudger(working_directory=args.workdir, config=config)
         nudger.watch_handoff()
     elif args.subcommand == "trigger-succession":
         with open(args.handoff, "r", encoding="utf-8") as f:
             content = f.read()
-        nudger = ContinuousNudger(working_directory=args.workdir)
+        nudger = ContinuousNudger(working_directory=args.workdir, config=config)
         nudger.trigger_succession(content)
     elif args.subcommand == "dimension":
         req = json.loads(args.requirements)
         mat = json.loads(args.matrix)
-        config = dimension_swarm(req, mat)
-        write_swarm_config_to_stream(sys.stdout, config)
+        swarm_config = dimension_swarm(req, mat)
+        write_swarm_config_to_stream(sys.stdout, swarm_config)
         sys.stdout.write("\n")
 
 if __name__ == "__main__":
     main()
+

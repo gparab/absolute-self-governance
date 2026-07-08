@@ -1,4 +1,4 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Iterator, Tuple
 
 @dataclass
@@ -8,40 +8,41 @@ class Agent:
     """
     role: str
     prompt: str
+    capabilities: List[str] = field(default_factory=list)
 
     def __getitem__(self, key: str) -> Any:
-        if key in ("role", "prompt"):
+        if key in ("role", "prompt", "capabilities"):
             return getattr(self, key)
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if key in ("role", "prompt"):
+        if key in ("role", "prompt", "capabilities"):
             setattr(self, key, value)
         else:
             raise KeyError(key)
 
     def __delitem__(self, key: str) -> None:
-        if key in ("role", "prompt"):
+        if key in ("role", "prompt", "capabilities"):
             raise TypeError(f"Cannot delete core attribute '{key}' from Agent.")
         raise KeyError(key)
 
     def __contains__(self, key: str) -> bool:
-        return key in ("role", "prompt")
+        return key in ("role", "prompt", "capabilities")
 
     def keys(self) -> List[str]:
-        return ["role", "prompt"]
+        return ["role", "prompt", "capabilities"]
 
     def values(self) -> List[Any]:
-        return [self.role, self.prompt]
+        return [self.role, self.prompt, self.capabilities]
 
     def items(self) -> List[Tuple[str, Any]]:
-        return [("role", self.role), ("prompt", self.prompt)]
+        return [("role", self.role), ("prompt", self.prompt), ("capabilities", self.capabilities)]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.keys())
 
     def __len__(self) -> int:
-        return 2
+        return 3
 
     def dict(self) -> Dict[str, Any]:
         """

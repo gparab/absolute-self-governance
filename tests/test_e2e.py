@@ -98,7 +98,7 @@ def test_dimensioning_json_schema():
     assert isinstance(data["swarm"], list)
     for item in data["swarm"]:
         assert isinstance(item, dict)
-        assert set(item.keys()) == {"role", "prompt"}
+        assert set(item.keys()) == {"role", "prompt", "capabilities"}
 
 
 def test_dimensioning_zero_requirements():

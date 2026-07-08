@@ -7,6 +7,7 @@ import threading
 from typing import Optional
 from self_governance.consensus import run_consensus
 from self_governance.dimensioning import dimension_swarm
+from self_governance.config import OrchestratorConfig
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -51,26 +52,29 @@ class HandoffHandler(FileSystemEventHandler):
         self.nudger = nudger
         
     def on_modified(self, event):
-        if not event.is_directory and os.path.basename(event.src_path) == "handoff.md":
+        if not event.is_directory and os.path.basename(event.src_path) == self.nudger.config.handoff_file:
             self.nudger.process_handoff()
 
     def on_created(self, event):
-        if not event.is_directory and os.path.basename(event.src_path) == "handoff.md":
+        if not event.is_directory and os.path.basename(event.src_path) == self.nudger.config.handoff_file:
             self.nudger.process_handoff()
+
 
 class ContinuousNudger:
     """
     An event-driven file watcher that monitors handoff.md for a COMPLETED status.
     When triggered, it initiates a succession session and schedules the next phase.
     """
-    def __init__(self, working_directory: str) -> None:
+    def __init__(self, working_directory: str, config: Optional[OrchestratorConfig] = None) -> None:
         """
         Initialize ContinuousNudger.
 
         Args:
             working_directory: The directory where handoff.md, logs, and prompt drafts are located.
+            config: Optional OrchestratorConfig instance.
         """
         self.working_directory = working_directory
+        self.config = config if config is not None else OrchestratorConfig()
         self.lock = threading.Lock()
         self.last_content: Optional[str] = None
         self.has_transient_error = False
@@ -82,7 +86,7 @@ class ContinuousNudger:
         Uses thread-safe lock synchronization.
         """
         with self.lock:
-            handoff_path = os.path.join(self.working_directory, "handoff.md")
+            handoff_path = os.path.join(self.working_directory, self.config.handoff_file)
             if not os.path.exists(handoff_path):
                 return
 
@@ -196,26 +200,34 @@ class ContinuousNudger:
         if not isinstance(candidates, list):
             raise HandoffTypeError("'candidates' must be a list")
 
-        # 2. Run consensus
-        res = run_consensus(candidates)
+        # 2. Run consensus with config parameters
+        res = run_consensus(
+            initial_roster=candidates,
+            B=self.config.consensus_buffer_limit,
+            target_tau=self.config.consensus_target_threshold,
+            initial_temp=self.config.consensus_initial_temperature,
+            gamma=self.config.consensus_temperature_step,
+            delta=self.config.consensus_decay_step
+        )
         approved_roster = res.approved_roster
 
-        # 3. Compute dynamic requirements scale
+        # 3. Compute dynamic requirements scale using matrix config
         req_vector = [float(len(approved_roster)), 1.0]
-        trans_matrix = [[1.0, 0.0], [0.0, 1.0]]
+        trans_matrix = self.config.default_matrix
         swarm_config = dimension_swarm(req_vector, trans_matrix)
 
         # 4. Serialize config and draft prompt first
-        prompt_path = os.path.join(self.working_directory, "prompt_draft.md")
+        prompt_path = os.path.join(self.working_directory, self.config.prompt_file)
         with open(prompt_path, "w", encoding="utf-8") as f:
             f.write("--- Swarm Configuration ---\n")
             write_swarm_config_to_stream(f, swarm_config)
             f.write("\n--- End Configuration ---\n")
             f.write("Prompt: Guide the swarm to collaborate on the next phase.\n")
 
-        # 5. Append rotation details to roster_rotation_log.md last (committing step)
-        log_path = os.path.join(self.working_directory, "roster_rotation_log.md")
+        # 5. Append rotation details last (committing step)
+        log_path = os.path.join(self.working_directory, self.config.roster_log_file)
         approved_str = ", ".join(approved_roster)
         log_entry = f"Succession Session Completed. Approved Roster: [{approved_str}]\n"
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_entry)
+

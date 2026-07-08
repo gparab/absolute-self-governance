@@ -1,0 +1,18 @@
+# Absolute Self-Governance Orchestrator Configuration
+
+consensus:
+  buffer_limit: 3          # B iterations
+  target_threshold: 9.0    # tau target
+  initial_temperature: 1.0 # initial T
+  temperature_step: 0.1    # gamma
+  decay_step: 0.5          # delta
+
+watcher:
+  handoff_file: "handoff.md"
+  prompt_file: "prompt_draft.md"
+  roster_log_file: "roster_rotation_log.md"
+
+dimensioning:
+  default_matrix:
+    - [1.0, 0.5]
+    - [0.0, 1.0]
