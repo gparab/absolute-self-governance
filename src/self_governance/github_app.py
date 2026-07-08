@@ -25,6 +25,7 @@ init_db()
 logger = logging.getLogger("self_governance.github_app")
 app = FastAPI(title="Self-Governing Software Factory App")
 
+
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
     _ = request.headers.get("X-Correlation-ID") or new_correlation_id()
@@ -32,55 +33,66 @@ async def add_correlation_id(request: Request, call_next):
     response.headers["X-Correlation-ID"] = get_correlation_id()
     return response
 
+
 @app.get("/metrics")
 def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def get_dashboard(
-    tenant: Tenant = Depends(rate_limit_tenant),
-    db: Session = Depends(get_db)
+    tenant: Tenant = Depends(rate_limit_tenant), db: Session = Depends(get_db)
 ):
-    sessions = db.query(SuccessionSession).filter(SuccessionSession.tenant_id == tenant.id).order_by(SuccessionSession.id.desc()).all()
+    sessions = (
+        db.query(SuccessionSession)
+        .filter(SuccessionSession.tenant_id == tenant.id)
+        .order_by(SuccessionSession.id.desc())
+        .all()
+    )
     usages = db.query(TokenUsage).filter(TokenUsage.tenant_id == tenant.id).all()
-    
+
     total_cost = sum(u.cost_usd for u in usages)
     total_tokens = sum(u.prompt_tokens + u.completion_tokens for u in usages)
-    
-    template_path = os.path.join(os.path.dirname(__file__), "templates", "dashboard.html")
+
+    template_path = os.path.join(
+        os.path.dirname(__file__), "templates", "dashboard.html"
+    )
     with open(template_path, "r", encoding="utf-8") as f:
         html = f.read()
-        
+
     rows_html = ""
     for s in sessions:
-        status_class = "status-completed" if s.status == "COMPLETED" else "status-pending"
+        status_class = (
+            "status-completed" if s.status == "COMPLETED" else "status-pending"
+        )
         rows_html += f"""
         <tr>
             <td>#{s.id}</td>
-            <td>{s.created_at.strftime('%Y-%m-%d %H:%M:%S')}</td>
+            <td>{s.created_at.strftime("%Y-%m-%d %H:%M:%S")}</td>
             <td>
                 <span class="session-status {status_class}">
                     {s.status}
                 </span>
             </td>
-            <td>{s.approved_roster or 'N/A'}</td>
+            <td>{s.approved_roster or "N/A"}</td>
             <td>{s.temperature} / {s.threshold}</td>
         </tr>
         """
     if not sessions:
         rows_html = """<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No sessions recorded.</td></tr>"""
-        
+
     html = html.replace("{{ tenant_id }}", tenant.id)
     html = html.replace("{{ tenant_stripe_id }}", tenant.stripe_customer_id or "N/A")
     html = html.replace("{{ total_cost }}", f"{total_cost:.6f}")
     html = html.replace("{{ total_tokens }}", str(total_tokens))
     html = html.replace("<!-- SESSION_ROWS -->", rows_html)
-    
+
     return HTMLResponse(content=html)
 
 
 class TenantCreateRequest(BaseModel):
     name: str
+
 
 @app.post("/tenants")
 def create_tenant(payload: TenantCreateRequest, db: Session = Depends(get_db)):
@@ -89,25 +101,26 @@ def create_tenant(payload: TenantCreateRequest, db: Session = Depends(get_db)):
     secret_key = secrets.token_hex(16)
     api_key = f"tenant_{tenant_id}_{secret_key}"
     api_key_hash = hash_key(api_key)
-    
+
     stripe_customer_id = f"cus_{secrets.token_hex(8)}"
-    
+
     tenant = Tenant(
         id=tenant_id,
         name=payload.name,
         api_key_hash=api_key_hash,
-        stripe_customer_id=stripe_customer_id
+        stripe_customer_id=stripe_customer_id,
     )
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
-    
+
     return {
         "tenant_id": tenant_id,
         "api_key": api_key,
         "stripe_customer_id": stripe_customer_id,
-        "msg": "Store the api_key safely. It will not be shown again."
+        "msg": "Store the api_key safely. It will not be shown again.",
     }
+
 
 # Load configuration and watcher context
 config = OrchestratorConfig()
@@ -117,28 +130,32 @@ nudger = ContinuousNudger(working_directory=".", config=config)
 if os.getenv("TESTING") != "True" and not os.getenv("WEBHOOK_SECRET"):
     raise ValueError("WEBHOOK_SECRET environment variable is required.")
 
+
 async def verify_signature(request: Request):
     """Verify GitHub webhook HMAC signature."""
     secret = os.getenv("WEBHOOK_SECRET")
     if os.getenv("TESTING") == "True" and not secret:
         return
-        
+
     if not secret:
         raise HTTPException(status_code=500, detail="WEBHOOK_SECRET is not configured.")
-        
+
     signature = request.headers.get("X-Hub-Signature-256")
     if not signature:
-        raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
+        raise HTTPException(
+            status_code=401, detail="Missing X-Hub-Signature-256 header"
+        )
     body = await request.body()
     expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
+
 @app.post("/webhook")
 async def github_webhook(
     request: Request,
     tenant: Tenant = Depends(rate_limit_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Handle GitHub webhook payloads.
@@ -179,8 +196,11 @@ async def github_webhook(
 
                 # Trigger succession planning and dimensioning
                 from self_governance.gemini_adapter import GeminiExecutionAdapter
+
                 adapter = GeminiExecutionAdapter()
-                res = nudger.trigger_succession(f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter)
+                res = nudger.trigger_succession(
+                    f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter
+                )
 
                 prompt_tokens = res.prompt_tokens
                 completion_tokens = res.completion_tokens
@@ -193,23 +213,34 @@ async def github_webhook(
                     tenant_id=tenant.id,
                     status="COMPLETED",
                     approved_roster=",".join(candidates),
-                    temperature=res.final_temperature if hasattr(res, 'final_temperature') else 1.0,
-                    threshold=res.final_threshold if hasattr(res, 'final_threshold') else 8.0
+                    temperature=res.final_temperature
+                    if hasattr(res, "final_temperature")
+                    else 1.0,
+                    threshold=res.final_threshold
+                    if hasattr(res, "final_threshold")
+                    else 8.0,
                 )
                 db.add(sess)
                 db.commit()
 
                 # Record actual token usage for the run
-                cost_usd = (prompt_tokens * 0.000000075) + (completion_tokens * 0.00000030)
+                cost_usd = (prompt_tokens * 0.000000075) + (
+                    completion_tokens * 0.00000030
+                )
                 record_usage(
                     tenant_id=tenant.id,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     cost_usd=cost_usd,
-                    db=db
+                    db=db,
                 )
 
-                return {"status": "success", "msg": "Swarm dispatched", "requirements": req_vector, "candidates": candidates}
+                return {
+                    "status": "success",
+                    "msg": "Swarm dispatched",
+                    "requirements": req_vector,
+                    "candidates": candidates,
+                }
 
     if event == "pull_request":
         action = payload.get("action")
@@ -218,10 +249,22 @@ async def github_webhook(
             merged = pr.get("merged", False)
             if merged:
                 # Merge completed: run the learning loop to adjust matrix weights
-                cycle_time = pr.get("closed_at_timestamp", 10.0) - pr.get("created_at_timestamp", 0.0)
+                cycle_time = pr.get("closed_at_timestamp", 10.0) - pr.get(
+                    "created_at_timestamp", 0.0
+                )
                 sec_vulnerability = "security" in pr.get("title", "").lower()
-                
-                track_learning_feedback(cycle_time=cycle_time, success=True, security_breached=sec_vulnerability)
-                return {"status": "success", "msg": "PR merge processed, learning loop updated."}
 
-    return {"status": "ignored", "msg": f"Event {event} {payload.get('action')} not processed"}
+                track_learning_feedback(
+                    cycle_time=cycle_time,
+                    success=True,
+                    security_breached=sec_vulnerability,
+                )
+                return {
+                    "status": "success",
+                    "msg": "PR merge processed, learning loop updated.",
+                }
+
+    return {
+        "status": "ignored",
+        "msg": f"Event {event} {payload.get('action')} not processed",
+    }

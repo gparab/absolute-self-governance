@@ -12,32 +12,26 @@ DEFAULT_CONFIG = {
         "target_threshold": 9.0,
         "initial_temperature": 1.0,
         "temperature_step": 0.1,
-        "decay_step": 0.5
+        "decay_step": 0.5,
     },
     "watcher": {
         "handoff_file": "handoff.md",
         "prompt_file": "prompt_draft.md",
         "roster_log_file": "roster_rotation_log.md",
-        "dry_run": False
+        "dry_run": False,
     },
     "dimensioning": {
-        "default_matrix": [
-            [1.0, 0.5],
-            [0.0, 1.0]
-        ],
-        "webhook_matrix": [
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.5, 0.5],
-            [0.2, 0.8]
-        ]
-    }
+        "default_matrix": [[1.0, 0.5], [0.0, 1.0]],
+        "webhook_matrix": [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]],
+    },
 }
+
 
 class OrchestratorConfig:
     """
     Configuration manager for the Self-Governance orchestrator.
     """
+
     def __init__(self, config_path: str = None) -> None:
         self.config_data = copy.deepcopy(DEFAULT_CONFIG)
         if config_path and os.path.exists(config_path):
@@ -48,7 +42,9 @@ class OrchestratorConfig:
                         self._merge_config(self.config_data, user_data)
                 logger.info("Loaded configuration from %s", config_path)
             except Exception as e:
-                logger.warning("Failed to load config from %s: %s. Using defaults.", config_path, e)
+                logger.warning(
+                    "Failed to load config from %s: %s. Using defaults.", config_path, e
+                )
 
     def _merge_config(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
         for k, v in update.items():
@@ -99,9 +95,6 @@ class OrchestratorConfig:
 
     @property
     def webhook_matrix(self) -> List[List[float]]:
-        return self.config_data["dimensioning"].get("webhook_matrix", [
-            [1.0, 0.0],
-            [0.0, 1.0],
-            [0.5, 0.5],
-            [0.2, 0.8]
-        ])
+        return self.config_data["dimensioning"].get(
+            "webhook_matrix", [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]]
+        )

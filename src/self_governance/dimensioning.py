@@ -4,12 +4,16 @@ from typing import List, Union, Iterator
 from collections.abc import Sequence
 from self_governance.models import Agent, SwarmConfig
 
+
 class LazyList(Sequence):
     """
     A memory-efficient, immutable sequence implementation that dynamically instantiates
     Agent objects on-demand rather than keeping them in memory.
     """
-    def __init__(self, prefix_sums: List[int], total_count: int, capabilities: List[str] = None) -> None:
+
+    def __init__(
+        self, prefix_sums: List[int], total_count: int, capabilities: List[str] = None
+    ) -> None:
         """
         Initialize LazyList.
 
@@ -54,16 +58,16 @@ class LazyList(Sequence):
             raise IndexError("list index out of range")
 
         role_idx = bisect.bisect_right(self._prefix_sums, idx)
-        role_map = {
-            0: "Backend Wizard",
-            1: "QA Specialist",
-            2: "Security Auditor"
-        }
+        role_map = {0: "Backend Wizard", 1: "QA Specialist", 2: "Security Auditor"}
         mapped_role = role_map.get(role_idx, f"role_{role_idx}")
-        
-        from self_governance.agency_agents_adapter import get_persona, get_capability_prompt
+
+        from self_governance.agency_agents_adapter import (
+            get_persona,
+            get_capability_prompt,
+        )
+
         persona = get_persona(mapped_role)
-        
+
         augmented_prompt = persona["prompt"]
         if self._capabilities:
             augmented_prompt += "\n\n### Injected Capabilities / Skills Guidelines:\n"
@@ -71,8 +75,12 @@ class LazyList(Sequence):
                 prompt_chunk = get_capability_prompt(cap)
                 if prompt_chunk:
                     augmented_prompt += f"- {prompt_chunk}\n"
-                    
-        return Agent(role=persona["role"], prompt=augmented_prompt, capabilities=self._capabilities)
+
+        return Agent(
+            role=persona["role"],
+            prompt=augmented_prompt,
+            capabilities=self._capabilities,
+        )
 
     def __iter__(self) -> Iterator[Agent]:
         """Iterate over all agents in the list."""
@@ -80,7 +88,9 @@ class LazyList(Sequence):
             yield self[i]
 
 
-def dimension_swarm(requirement_vector: List[float], transition_matrix: List[List[float]]) -> SwarmConfig:
+def dimension_swarm(
+    requirement_vector: List[float], transition_matrix: List[List[float]]
+) -> SwarmConfig:
     """
     Compute the optimal subagent swarm configuration based on a dynamic scaling model.
 
@@ -118,7 +128,9 @@ def dimension_swarm(requirement_vector: List[float], transition_matrix: List[Lis
         if not isinstance(row, list):
             raise TypeError("transition_matrix must be a 2D list (list of lists)")
         if len(row) != len(requirement_vector):
-            raise ValueError("Each row in transition_matrix must match requirement_vector's length")
+            raise ValueError(
+                "Each row in transition_matrix must match requirement_vector's length"
+            )
         for val in row:
             if isinstance(val, bool):
                 raise TypeError("transition_matrix elements must be numeric, not bool")

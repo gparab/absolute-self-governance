@@ -1,54 +1,87 @@
 import pytest
 from fastapi.testclient import TestClient
-from self_governance.db import Base, Tenant, SuccessionSession, TokenUsage, engine, SessionLocal
+from self_governance.db import (
+    Base,
+    Tenant,
+    SuccessionSession,
+    TokenUsage,
+    engine,
+    SessionLocal,
+)
 from self_governance.billing import record_usage
 from self_governance.github_app import app
+
 
 @pytest.fixture(autouse=True)
 def setup_test_db():
     Base.metadata.create_all(bind=engine)
     # Seed test tenants
     db = SessionLocal()
-    
+
     # Clean up existing rows
     db.query(TokenUsage).delete()
     db.query(SuccessionSession).delete()
     db.query(Tenant).delete()
     db.commit()
-    
+
     from self_governance.auth import hash_key
-    tenant_a = Tenant(id="tenantA", name="Tenant Alpha", stripe_customer_id="cus_alpha123", api_key_hash=hash_key("tenant_tenantA_key"))
-    tenant_b = Tenant(id="tenantB", name="Tenant Beta", stripe_customer_id="cus_beta456", api_key_hash=hash_key("tenant_tenantB_key"))
+
+    tenant_a = Tenant(
+        id="tenantA",
+        name="Tenant Alpha",
+        stripe_customer_id="cus_alpha123",
+        api_key_hash=hash_key("tenant_tenantA_key"),
+    )
+    tenant_b = Tenant(
+        id="tenantB",
+        name="Tenant Beta",
+        stripe_customer_id="cus_beta456",
+        api_key_hash=hash_key("tenant_tenantB_key"),
+    )
     db.add(tenant_a)
     db.add(tenant_b)
     db.commit()
     db.close()
-    
+
     yield
+
 
 def test_db_tenant_isolation():
     db = SessionLocal()
-    
+
     # Save session for tenantA
-    sess_a = SuccessionSession(tenant_id="tenantA", status="COMPLETED", approved_roster="agent_dev")
+    sess_a = SuccessionSession(
+        tenant_id="tenantA", status="COMPLETED", approved_roster="agent_dev"
+    )
     db.add(sess_a)
     db.commit()
-    
+
     # Save session for tenantB
-    sess_b = SuccessionSession(tenant_id="tenantB", status="PENDING", approved_roster="agent_tester")
+    sess_b = SuccessionSession(
+        tenant_id="tenantB", status="PENDING", approved_roster="agent_tester"
+    )
     db.add(sess_b)
     db.commit()
-    
+
     # Query separately
-    a_sessions = db.query(SuccessionSession).filter(SuccessionSession.tenant_id == "tenantA").all()
-    b_sessions = db.query(SuccessionSession).filter(SuccessionSession.tenant_id == "tenantB").all()
-    
+    a_sessions = (
+        db.query(SuccessionSession)
+        .filter(SuccessionSession.tenant_id == "tenantA")
+        .all()
+    )
+    b_sessions = (
+        db.query(SuccessionSession)
+        .filter(SuccessionSession.tenant_id == "tenantB")
+        .all()
+    )
+
     assert len(a_sessions) == 1
     assert a_sessions[0].status == "COMPLETED"
-    
+
     assert len(b_sessions) == 1
     assert b_sessions[0].status == "PENDING"
     db.close()
+
 
 def test_billing_record_usage():
     db = SessionLocal()
@@ -57,64 +90,76 @@ def test_billing_record_usage():
         prompt_tokens=1000,
         completion_tokens=500,
         cost_usd=0.000225,
-        db=db
+        db=db,
     )
     assert usage.tenant_id == "tenantA"
     assert usage.prompt_tokens == 1000
     assert usage.cost_usd == 0.000225
     db.close()
 
+
 def test_dashboard_renders_tenant_data():
     client = TestClient(app)
-    
+
     # Verify Tenant A's dashboard
-    response_a = client.get("/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"})
+    response_a = client.get(
+        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+    )
     assert response_a.status_code == 200
     assert "Tenant Context: tenantA" in response_a.text
     assert "cus_alpha123" in response_a.text
-    
+
     # Verify Tenant B's dashboard
-    response_b = client.get("/dashboard", headers={"Authorization": "Bearer tenant_tenantB_key"})
+    response_b = client.get(
+        "/dashboard", headers={"Authorization": "Bearer tenant_tenantB_key"}
+    )
     assert response_b.status_code == 200
     assert "Tenant Context: tenantB" in response_b.text
     assert "cus_beta456" in response_b.text
 
+
 def test_webhook_adds_db_records(monkeypatch):
     async def mock_verify(req):
         return None
+
     monkeypatch.setattr("self_governance.github_app.verify_signature", mock_verify)
-    
+
     client = TestClient(app)
-    
+
     # Post webhook using Tenant A auth token
     payload = {
         "action": "opened",
         "issue": {
             "title": "Database connection optimization",
-            "body": "Optimize performance of tenant queries"
-        }
+            "body": "Optimize performance of tenant queries",
+        },
     }
-    
+
     response = client.post(
         "/webhook",
         json=payload,
         headers={
             "X-GitHub-Event": "issues",
-            "Authorization": "Bearer tenant_tenantA_key"
-        }
+            "Authorization": "Bearer tenant_tenantA_key",
+        },
     )
     assert response.status_code == 200
-    
+
     # Query DB to make sure a session was created for Tenant A
     db = SessionLocal()
-    sessions = db.query(SuccessionSession).filter(SuccessionSession.tenant_id == "tenantA").all()
+    sessions = (
+        db.query(SuccessionSession)
+        .filter(SuccessionSession.tenant_id == "tenantA")
+        .all()
+    )
     usages = db.query(TokenUsage).filter(TokenUsage.tenant_id == "tenantA").all()
-    
+
     assert len(sessions) == 1
     assert "role_" in sessions[0].approved_roster
     assert len(usages) == 1
     assert usages[0].prompt_tokens == 500
     db.close()
+
 
 def test_create_tenant_endpoint():
     client = TestClient(app)
@@ -124,32 +169,39 @@ def test_create_tenant_endpoint():
     assert "tenant_id" in data
     assert "api_key" in data
     assert "stripe_customer_id" in data
-    
+
     tenant_id = data["tenant_id"]
     api_key = data["api_key"]
-    
-    response_dash = client.get("/dashboard", headers={"Authorization": f"Bearer {api_key}"})
+
+    response_dash = client.get(
+        "/dashboard", headers={"Authorization": f"Bearer {api_key}"}
+    )
     assert response_dash.status_code == 200
     assert f"Tenant Context: {tenant_id}" in response_dash.text
 
+
 def test_rate_limiting_enforcement():
     from self_governance.db import SessionLocal, RateLimitEntry
+
     db = SessionLocal()
     db.query(RateLimitEntry).filter(RateLimitEntry.tenant_id == "tenantA").delete()
-    
+
     import time
+
     now = time.time()
     for _ in range(100):
         entry = RateLimitEntry(tenant_id="tenantA", timestamp=now)
         db.add(entry)
     db.commit()
     db.close()
-    
+
     client = TestClient(app)
-    response = client.get("/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"})
+    response = client.get(
+        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+    )
     assert response.status_code == 429
     assert "Rate limit exceeded" in response.json()["detail"]
-    
+
     db = SessionLocal()
     db.query(RateLimitEntry).filter(RateLimitEntry.tenant_id == "tenantA").delete()
     db.commit()

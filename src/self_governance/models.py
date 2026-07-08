@@ -1,11 +1,13 @@
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Any, Iterator, Tuple
 
+
 @dataclass
 class Agent:
     """
     Represents an individual agent in the swarm.
     """
+
     role: str
     prompt: str
     capabilities: List[str] = field(default_factory=list)
@@ -36,7 +38,11 @@ class Agent:
         return [self.role, self.prompt, self.capabilities]
 
     def items(self) -> List[Tuple[str, Any]]:
-        return [("role", self.role), ("prompt", self.prompt), ("capabilities", self.capabilities)]
+        return [
+            ("role", self.role),
+            ("prompt", self.prompt),
+            ("capabilities", self.capabilities),
+        ]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.keys())
@@ -57,12 +63,12 @@ class Agent:
         return self.dict()
 
 
-
 @dataclass
 class SwarmConfig:
     """
     Configuration for the swarm of agents.
     """
+
     swarm: List[Agent]
 
     def __getitem__(self, key: str) -> Any:
@@ -88,7 +94,9 @@ class SwarmConfig:
     def __getattr__(self, name: str) -> Any:
         if name == "swarm":
             raise KeyError(name)
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        raise AttributeError(
+            f"'{self.__class__.__name__}' object has no attribute '{name}'"
+        )
 
     def __contains__(self, key: str) -> bool:
         return key == "swarm" and hasattr(self, key)

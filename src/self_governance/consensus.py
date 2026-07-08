@@ -10,8 +10,16 @@ class ConsensusResult(tuple):
     Result of a succession consensus run.
     Contains the approved roster, final temperature, and final threshold.
     """
-    def __new__(cls, approved_roster: List[str], final_temperature: float, final_threshold: float) -> "ConsensusResult":
-        obj = super().__new__(cls, (approved_roster, final_temperature, final_threshold))
+
+    def __new__(
+        cls,
+        approved_roster: List[str],
+        final_temperature: float,
+        final_threshold: float,
+    ) -> "ConsensusResult":
+        obj = super().__new__(
+            cls, (approved_roster, final_temperature, final_threshold)
+        )
         obj.prompt_tokens = 0
         obj.completion_tokens = 0
         return obj
@@ -42,7 +50,7 @@ def run_consensus(
     seed: Optional[int] = None,
     adapter: Optional[Any] = None,
     requirements: Optional[List[float]] = None,
-    T_max: float = 2.0
+    T_max: float = 2.0,
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -76,7 +84,11 @@ def run_consensus(
         raise TypeError("all elements in initial_roster must be strings")
     if not isinstance(B, int) or B <= 0:
         raise ValueError("B must be a positive integer")
-    if not isinstance(initial_temp, (int, float)) or not math.isfinite(initial_temp) or initial_temp < 0.0:
+    if (
+        not isinstance(initial_temp, (int, float))
+        or not math.isfinite(initial_temp)
+        or initial_temp < 0.0
+    ):
         raise ValueError("initial_temp must be non-negative")
     if not isinstance(gamma, (int, float)) or not math.isfinite(gamma) or gamma < 0.0:
         raise ValueError("gamma must be non-negative")
@@ -109,6 +121,7 @@ def run_consensus(
 
         if api_key and adapter is None:
             from self_governance.gemini_adapter import GeminiExecutionAdapter
+
             adapter = GeminiExecutionAdapter(api_key=api_key)
 
         from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
@@ -121,31 +134,41 @@ def run_consensus(
             new_justifications = {}
             peer_feedback = ""
             if justifications:
-                peer_feedback = "Here is the peer feedback from the previous round of deliberation:\n" + "\n".join(
-                    f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
-                    for a, info in justifications.items()
-                ) + "\n\n"
+                peer_feedback = (
+                    "Here is the peer feedback from the previous round of deliberation:\n"
+                    + "\n".join(
+                        f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
+                        for a, info in justifications.items()
+                    )
+                    + "\n\n"
+                )
             for agent in initial_roster:
-                from self_governance.agency_agents_adapter import get_persona, get_capability_prompt
+                from self_governance.agency_agents_adapter import (
+                    get_persona,
+                    get_capability_prompt,
+                )
+
                 persona = get_persona(agent)
-                
+
                 capability_info = ""
                 if requirements:
                     resolved_caps = []
                     if len(requirements) > 0 and requirements[0] > 0.0:
                         resolved_caps.append("sqlite_concurrency")
                     if len(requirements) > 1 and requirements[1] > 0.0:
-                        resolved_caps.extend(["hmac_verification", "path_traversal_hardening"])
+                        resolved_caps.extend(
+                            ["hmac_verification", "path_traversal_hardening"]
+                        )
                     if len(requirements) > 2 and requirements[2] > 0.0:
                         resolved_caps.append("pytest_coverage")
-                        
+
                     if resolved_caps:
                         capability_info = "Associated Capabilities/Skills Guidelines:\n"
                         for cap in resolved_caps:
                             prompt_chunk = get_capability_prompt(cap)
                             if prompt_chunk:
                                 capability_info += f"- {prompt_chunk}\n"
-                
+
                 persona_info = f"Agent Persona Guidelines: {persona['prompt']}\nDivision: {persona['division']}\nDescription: {persona['description']}\n{capability_info}"
 
                 if api_key and adapter is not None:
@@ -182,13 +205,18 @@ def run_consensus(
                     else:
                         escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
                         score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
-                    justification = f"Mock justification for {agent} at iteration {iteration}"
+                    justification = (
+                        f"Mock justification for {agent} at iteration {iteration}"
+                    )
 
                 scores[agent] = score
-                new_justifications[agent] = {"score": score, "justification": justification}
-            
+                new_justifications[agent] = {
+                    "score": score,
+                    "justification": justification,
+                }
+
             justifications = new_justifications
-            
+
             avg_score = sum(scores.values()) / len(initial_roster)
 
             if avg_score >= tau:

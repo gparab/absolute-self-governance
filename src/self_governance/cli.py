@@ -6,34 +6,52 @@ from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
 from self_governance.dashboard import display_dashboard
 
+
 def main():
     parser = argparse.ArgumentParser(description="Absolute Self-Governance CLI")
     parser.add_argument("--config", help="Path to config YAML file")
-    parser.add_argument("--json-logs", action="store_true", help="Format output logs in structured JSON")
+    parser.add_argument(
+        "--json-logs", action="store_true", help="Format output logs in structured JSON"
+    )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # run-nudger subcommand
     parser_run = subparsers.add_parser("run-nudger", help="Start the continuous nudger")
-    parser_run.add_argument("--workdir", default=".", help="Working directory (default: '.')")
+    parser_run.add_argument(
+        "--workdir", default=".", help="Working directory (default: '.')"
+    )
 
     # trigger-succession subcommand
-    parser_trigger = subparsers.add_parser("trigger-succession", help="Manually run succession")
+    parser_trigger = subparsers.add_parser(
+        "trigger-succession", help="Manually run succession"
+    )
     parser_trigger.add_argument("--handoff", required=True, help="Path to handoff file")
-    parser_trigger.add_argument("--workdir", default=".", help="Working directory (default: '.')")
+    parser_trigger.add_argument(
+        "--workdir", default=".", help="Working directory (default: '.')"
+    )
 
     # dimension subcommand
-    parser_dim = subparsers.add_parser("dimension", help="Output serialized JSON swarm configuration")
-    parser_dim.add_argument("-r", "--requirements", required=True, help="Requirements as a JSON string")
-    parser_dim.add_argument("-m", "--matrix", required=True, help="Matrix as a JSON string")
+    parser_dim = subparsers.add_parser(
+        "dimension", help="Output serialized JSON swarm configuration"
+    )
+    parser_dim.add_argument(
+        "-r", "--requirements", required=True, help="Requirements as a JSON string"
+    )
+    parser_dim.add_argument(
+        "-m", "--matrix", required=True, help="Matrix as a JSON string"
+    )
 
     # stats subcommand
     subparsers.add_parser("stats", help="Show the metrics dashboard")
 
     # benchmark subcommand
-    subparsers.add_parser("benchmark", help="Run the diagnostic comparison benchmark suite")
+    subparsers.add_parser(
+        "benchmark", help="Run the diagnostic comparison benchmark suite"
+    )
 
     args = parser.parse_args()
     from self_governance.telemetry import setup_telemetry, new_correlation_id
+
     setup_telemetry(json_logging=args.json_logs)
     new_correlation_id()
 
@@ -57,8 +75,11 @@ def main():
         display_dashboard()
     elif args.subcommand == "benchmark":
         from self_governance.benchmark import run_benchmark
+
         results = run_benchmark()
-        print(f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}")
+        print(
+            f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}"
+        )
         print("-" * 96)
         for task_id, metric in results.items():
             b = metric["baseline"]
@@ -67,7 +88,6 @@ def main():
             a_str = f"{'PASS' if a['passed'] else 'FAIL'} / {a['latency_sec']}s / ${a['estimated_cost_usd']:.5f}"
             print(f"{metric['name']:<30} | {b_str:<30} | {a_str:<30}")
 
+
 if __name__ == "__main__":
     main()
-
-

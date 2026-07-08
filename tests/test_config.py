@@ -2,6 +2,7 @@ import os
 import tempfile
 from self_governance.config import OrchestratorConfig
 
+
 def test_config_defaults():
     config = OrchestratorConfig()
     assert config.consensus_buffer_limit == 3
@@ -13,6 +14,7 @@ def test_config_defaults():
     assert config.prompt_file == "prompt_draft.md"
     assert config.roster_log_file == "roster_rotation_log.md"
     assert config.default_matrix == [[1.0, 0.5], [0.0, 1.0]]
+
 
 def test_config_override():
     yaml_content = """
@@ -35,6 +37,7 @@ watcher:
         assert config.consensus_initial_temperature == 1.0
     finally:
         os.remove(temp_name)
+
 
 def test_config_invalid_file():
     # Should fallback gracefully without raising
