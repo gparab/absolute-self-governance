@@ -398,5 +398,31 @@ We welcome contributions to absolute self-governance orchestration algorithms! T
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
+---
+
+## 10. Architectural Retrospective & Lessons Learned
+
+Reflecting on the development history of this repository, several key architectural insights emerged regarding how to design, build, and validate autonomous agentic systems:
+
+### 1. Test the Riskiest Assumption First (with the Cheapest Harness)
+Before investing engineering effort in complex orchestration scaffolding (`consensus.py`, `dimensioning.py`, telemetry, and multi-tenant databases), the core thesis must be tested first. Discovering late in development that a multi-agent consensus pipeline incurs an 11x cost premium with no measured quality gain over a baseline single-shot agent on simple tasks highlights the importance of early validation. Building the benchmark first would have established this baseline fact early.
+
+### 2. Never Let Documentation Get Ahead of Implementation
+In the early commits of this project, the mathematical foundations (such as Shannon entropy dynamic scaling and Thermal Escape consensus) were documented extensively in the README long before the implementation matched those definitions. Writing documentation *after* the behavior is implemented ensures that the system's claims align accurately with its actual features and avoids building facades.
+
+### 3. Security Boundaries are Core, Not a Later Phase
+Trust boundaries, path traversal protections, non-root execution contexts, and webhook HMAC signature verifications must be implemented the moment external network inputs or file writes are introduced. Delaying security auditing introduces unnecessary risks and makes retrofitting authentication more expensive than design-phase integration.
+
+### 4. Real Deliberation Requires Real Disagreement
+If consensus is a core feature, it must represent a genuine exchange of distinct agent perspectives or evaluations of actual work products. Role-playing candidate names sequentially using a single model is a valuable simulation, but true decentralized consensus demands independent critique loops to make the deliberation process meaningful.
+
+### 5. Proper Build Sequencing
+When building agentic platforms, the optimal progression order is:
+```
+Prove the Core Swarm Loop -> Harden Security Contexts -> Add Multi-tenancy & Billing -> Scale & Add Observability
+```
+Implementing scaling layers, Stripe meters, and Kubernetes HPA configurations before validating the core execution loop shifts focus from the product's primary value proposition to its distribution logistics.
+
+
 
 
