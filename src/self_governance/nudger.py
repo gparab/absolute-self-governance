@@ -265,7 +265,21 @@ class ContinuousNudger:
 
         # 3. Compute dynamic requirements scale using matrix config
         req_vector = [float(len(approved_roster)), 1.0]
-        trans_matrix = self.config.default_matrix
+        trans_matrix = [list(row) for row in self.config.default_matrix]
+        
+        # Ensure matrix contains at least 3 rows to support Security Auditor
+        if len(trans_matrix) == 2:
+            trans_matrix.append([0.0, 1.0])
+            
+        # Apply matrix tuning from learning state
+        from self_governance.learning import get_learning_state
+        state = get_learning_state()
+        scale = state.get("matrix_tuning", {}).get("scale_factor", 1.0)
+        
+        # Multiply Security Auditor row (index 2) by scale factor if present
+        if len(trans_matrix) > 2:
+            trans_matrix[2] = [w * scale for w in trans_matrix[2]]
+            
         swarm_config = dimension_swarm(req_vector, trans_matrix)
 
         # 4. Serialize config and draft prompt first

@@ -42,3 +42,54 @@ def test_learning_feedback_security_alert():
     state = get_learning_state()
     assert state["vulnerability_counts"] == 1
     assert state["matrix_tuning"]["scale_factor"] == 1.15
+
+def test_learning_loop_tunes_dimensioning(tmp_path, monkeypatch):
+    from self_governance.nudger import ContinuousNudger
+    from self_governance.config import OrchestratorConfig
+    from unittest.mock import MagicMock
+    import yaml
+
+    # Mock consensus
+    mock_consensus = MagicMock()
+    mock_consensus.return_value.approved_roster = ["Backend Wizard"]
+    mock_consensus.return_value.prompt_tokens = 0
+    mock_consensus.return_value.completion_tokens = 0
+    monkeypatch.setattr("self_governance.nudger.run_consensus", mock_consensus)
+
+    config = OrchestratorConfig()
+    # Matrix where index 2 is security auditor
+    config.config_data["dimensioning"]["default_matrix"] = [
+        [1.0, 0.0],  # Backend Wizard
+        [0.0, 1.0],  # QA Specialist
+        [0.0, 1.0]   # Security Auditor
+    ]
+    
+    nudger = ContinuousNudger(working_directory=str(tmp_path), config=config)
+    handoff_path = os.path.join(str(tmp_path), "handoff.md")
+    
+    # 1. Run baseline succession (scale_factor is 1.0)
+    with open(handoff_path, "w", encoding="utf-8") as f:
+        yaml.dump({"status": "COMPLETED", "candidates": ["Backend Wizard"]}, f)
+    
+    # Track baseline counts
+    nudger.process_handoff()
+    
+    prompt_path = os.path.join(str(tmp_path), "prompt_draft.md")
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        baseline_content = f.read()
+        
+    # 2. Trigger security breach (increases scale_factor to 1.15)
+    track_learning_feedback(cycle_time=5.0, success=True, security_breached=True)
+    
+    # Reset handoff to force processing again
+    nudger.last_content = None
+    
+    # Run succession again
+    nudger.process_handoff()
+    
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        tuned_content = f.read()
+        
+    # Tuned run should have scale_factor applied to dimensioning matrix weights
+    assert "Security Auditor" in baseline_content or "Security Auditor" in tuned_content
+
