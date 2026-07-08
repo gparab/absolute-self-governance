@@ -177,25 +177,31 @@ magical-meitner/
 
 ### Installation Instructions
 
-This project requires **Python 3.13+**. You can install the package locally using `pip` or `uv`.
+This project requires **Python 3.13+**.
 
-#### Standard Installation
+#### One-Liner Installation (Recommended)
+You can install `self-governance` globally in an isolated environment and link it to your PATH with a single command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/gparab/absolute-self-governance/master/install.sh | bash
+```
+
+#### Via `pipx` (Alternative global install)
+```bash
+pipx install git+https://github.com/gparab/absolute-self-governance.git
+```
+
+#### Standard Installation (Local Development)
 To install the package in your current environment:
 ```bash
 pip install .
 ```
 
-#### Editable/Development Mode
-To install the package in editable mode so changes to the source code are reflected immediately:
-```bash
-pip install -e .
-```
-
-#### Using `uv` (Recommended)
-If you have `uv` installed, you can sync the lockfile and install in editable mode:
+#### Using `uv` (Recommended for developers)
+If you have `uv` installed, you can sync and install in editable mode:
 ```bash
 uv pip install -e .
 ```
+
 
 ---
 
