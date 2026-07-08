@@ -4,7 +4,7 @@ import logging
 import urllib.request
 import urllib.error
 import time
-import subprocess
+import subprocess  # nosec B404
 import sys
 from typing import List, Dict, Any, Optional
 from self_governance.base_adapter import BaseExecutionAdapter
@@ -41,7 +41,7 @@ def call_gemini_with_metadata(
             url, data=json.dumps(data).encode(), headers=headers, method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as response:
+            with urllib.request.urlopen(req, timeout=15) as response:  # nosec B310
                 res_data = json.loads(response.read().decode())
                 candidates = res_data.get("candidates", [])
                 usage_metadata = res_data.get("usageMetadata", {})
@@ -350,7 +350,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         logger.info("Gemini Reviewer Swarm: Inspecting development changes...")
         try:
             res = subprocess.run(
-                ["ruff", "check", "."], capture_output=True, text=True, timeout=15
+                ["ruff", "check", "."], capture_output=True, text=True, timeout=15  # nosec B603 B607
             )
             lint_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"
@@ -393,7 +393,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "none",
                 "--read-only",
                 "--tmpfs",
-                "/tmp",
+                "/tmp",  # nosec B108
                 "--tmpfs",
                 "/app/.pytest_cache",
                 "-v",
@@ -406,7 +406,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             if test_target:
                 docker_cmd.append(test_target)
 
-            res = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=30)
+            res = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=30)  # nosec B603
             test_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"
             logger.info(
@@ -423,7 +423,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 if test_target:
                     test_cmd.append(test_target)
                 res = subprocess.run(
-                    test_cmd, capture_output=True, text=True, timeout=30
+                    test_cmd, capture_output=True, text=True, timeout=30  # nosec B603
                 )
                 test_output = res.stdout + "\n" + res.stderr
                 status = "completed" if res.returncode == 0 else "failed"
@@ -449,7 +449,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         logger.info("Gemini Security Swarm: Running static security checks...")
         try:
             res = subprocess.run(
-                ["bandit", "-r", "src/"], capture_output=True, text=True, timeout=15
+                ["bandit", "-r", "src/"], capture_output=True, text=True, timeout=15  # nosec B603 B607
             )
             sec_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"

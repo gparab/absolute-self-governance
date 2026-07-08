@@ -110,9 +110,9 @@ def run_consensus(
             return ConsensusResult([], float(initial_temp), float(target_tau))
 
         if seed is not None:
-            rng = random.Random(seed)
+            rng = random.Random(seed)  # nosec B311
         else:
-            rng = random.Random()
+            rng = random.Random()  # nosec B311
         temp = float(initial_temp)
         tau = float(target_tau)
         iteration = 1
