@@ -37,3 +37,7 @@ self_governance.db
 .learning_state.json
 task.md
 paper_parity_analysis.md
+prompt_draft.md
+roster_rotation_log.md
+TELEMETRY_LOG.md
+benchmark_results.md
