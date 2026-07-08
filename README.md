@@ -125,31 +125,20 @@ The `ContinuousNudger` is an asynchronous file watcher that runs in the backgrou
 
 The self-governance state machine transitions through the following pipeline:
 
-```
-[Watcher Loop] 
-      │
-      ▼  (Detects status: COMPLETED in handoff.md)
-┌──────────────────────┐
-│  Succession Session  │  ──► Reads YAML, extracts candidate agents
-└──────────────────────┘
-      │
-      ▼
-┌──────────────────────┐
-│    TETD Consensus    │  ──► Simulates iterative votes on roster candidates;
-└──────────────────────┘      adjusts T and tau dynamically if k > B
-      │
-      ▼
-┌──────────────────────┐
-│   Dimension Swarm    │  ──► Uses approved roster size to build requirements:
-└──────────────────────┘      R_t = [len(approved_roster), 1.0] -> S_t = round(W * R_t)
-      │
-      ├─────────────────────────────────────────┐
-      ▼ (Append log entry)                      ▼ (Write YAML config)
-┌───────────────────────────┐             ┌─────────────────────────┐
-│  roster_rotation_log.md   │             │     prompt_draft.md     │
-│  - Commit log of approved │             │  - Nested Swarm JSON    │
-│    roster names           │             │  - Next-phase instructions│
-└───────────────────────────┘             └─────────────────────────┘
+```mermaid
+graph TD
+    Watcher[Watcher Loop] -->|Detects status: COMPLETED in handoff.md| Succession[Succession Session]
+    Succession -->|Reads YAML, extracts candidate agents| Consensus[TETD Consensus]
+    Consensus -->|Simulates votes, adjusts T and tau if k > B| Dimension[Dimension Swarm]
+    Dimension -->|Append log entry| Log[roster_rotation_log.md]
+    Dimension -->|Write config| Prompt[prompt_draft.md]
+
+    style Watcher fill:#1f2335,stroke:#7aa2f7,stroke-width:2px,color:#c0caf5
+    style Succession fill:#1f2335,stroke:#bb9af7,stroke-width:2px,color:#c0caf5
+    style Consensus fill:#1f2335,stroke:#f7768e,stroke-width:2px,color:#c0caf5
+    style Dimension fill:#1f2335,stroke:#9ece6a,stroke-width:2px,color:#c0caf5
+    style Log fill:#1f2335,stroke:#e0af68,stroke-width:2px,color:#c0caf5
+    style Prompt fill:#1f2335,stroke:#2ac3de,stroke-width:2px,color:#c0caf5
 ```
 
 1. **Detection**: `ContinuousNudger` catches `status: COMPLETED` and initiates succession.
@@ -299,7 +288,25 @@ The Absolute Self-Governance Orchestrator integrates seamlessly with external ID
 
 ### Integration Architecture Diagram
 
-![IDE Integration Architecture Diagram](assets/ide_integration_architecture.jpg)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant IDE as IDE Agent Runner (Cursor/Claude Code)
+    participant Bus as File-System Bus (handoff.md / prompt_draft.md)
+    participant Orch as Self-Governance Orchestrator
+
+    Note over IDE: Subagents execute tasks
+    IDE->>Bus: Writes status: COMPLETED & candidates to handoff.md
+    Note over Orch: watchdog triggers on handoff.md modification
+    Bus->>Orch: Read candidates & status
+    Note over Orch: Run Succession Voting (TETD Consensus)
+    Note over Orch: Run Swarm Dimensioning (S_t = round(W*R_t))
+    Orch->>Bus: Writes approved roster config to prompt_draft.md
+    Orch->>Bus: Appends audit entry to roster_rotation_log.md
+    Bus->>IDE: Read swarm config & instructions from prompt_draft.md
+    Note over IDE: Spin up next-phase subagents
+```
+
 
 ### Steps to Use
 
