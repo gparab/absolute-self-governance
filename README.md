@@ -20,6 +20,9 @@ This project implements the theoretical framework for **Absolute Self-Governance
     - [CLI / Programmatic Execution](#cli--programmatic-execution)
     - [Running the Test Suite](#running-the-test-suite)
 6. [IDE Agent Runner Integration](#6-ide-agent-runner-integration)
+7. [Contributing](#7-contributing)
+8. [License](#8-license)
+
 
 
 ---
@@ -356,4 +359,28 @@ Prompt: Guide the swarm to collaborate on the next phase.
 ```
 
 Your IDE agent runner (Cursor, Claude Code, etc.) reads this newly generated prompt configuration to spin up the next set of specialized worker subagents, executing the next SDLC cycle autonomously.
+
+---
+
+## 7. Contributing
+
+We welcome contributions to absolute self-governance orchestration algorithms! To get started:
+
+1. **Fork the Repository**: Create your own fork and clone it locally.
+2. **Setup Development Environment**: Sync dependencies using `uv`:
+   ```bash
+   uv sync
+   ```
+3. **Write Tests**: Ensure any changes or bug fixes are covered by appropriate unit or integration tests under the `tests/` directory.
+4. **Verify Quality**: Run the test suite to ensure a 100% pass rate:
+   ```bash
+   uv run pytest
+   ```
+
+---
+
+## 8. License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
 
