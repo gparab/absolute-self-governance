@@ -409,10 +409,11 @@ When orchestrating autonomous agents, the primary security threat vector is **Pr
 To mitigate this, the orchestrator implements:
 1. **Path Traversal Sandboxing**: The file-writing dispatcher strictly resolves absolute target paths and rejects any write operations targeting files outside the current project root directory boundary (`os.path.abspath(".")`).
 2. **Mandatory HMAC Verification**: Webhook ingestion `/webhook` requires a verified HMAC-SHA256 signature calculated using a pre-configured `WEBHOOK_SECRET` token to prevent forged requests.
+3. **Containerized Pytest Sandboxing**: Runs verification test suites inside isolated, ephemeral Docker container sandboxes with network egress disabled (`--network none`) to safely isolate untrusted generated code, falling back gracefully to standard host subprocesses only if Docker is unavailable.
+4. **Relational Database Persistence**: Supports full multi-tenant SaaS state persistence using SQLAlchemy (SQLite/PostgreSQL) to store succession logs, approved rosters, rate limit history, and token usage metadata.
 
 ### Known Limitations
-1. **Host Pytest Execution**: Currently, `execute_tests` runs pytest inside the host environment. For full commercial safety, tests should be executed inside isolated docker container sandboxes.
-2. **Local File-System State**: Orchestrator configurations and learning states are currently persisted locally via flat JSON and Markdown files. Multi-tenant SaaS deployments will require database persistence layers (e.g., Postgres).
+1. **Dynamic Roster Complexity**: Deliberation parameters (like temperature schedules) are optimized for small-to-medium councils ($N \le 50$) and may scale slower on extremely large consensus boards.
 
 ---
 
