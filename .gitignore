@@ -30,3 +30,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Database and runtime states
+*.db
+self_governance.db
+.learning_state.json
+task.md
