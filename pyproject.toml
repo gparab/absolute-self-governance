@@ -16,6 +16,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "prometheus-client",
+    "sqlalchemy",
 ]
 
 [tool.setuptools.packages.find]
