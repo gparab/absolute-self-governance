@@ -7,7 +7,7 @@ from self_governance.cli import main
 
 def test_load_benchmark_tasks():
     tasks = load_benchmark_tasks()
-    assert len(tasks) == 3
+    assert len(tasks) == 6
     assert tasks[0]["id"] == "task_palindrome"
 
 def test_run_benchmark_mocked(monkeypatch):

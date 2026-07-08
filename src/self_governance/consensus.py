@@ -112,32 +112,59 @@ def run_consensus(
 
         from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
 
+        justifications = {}
+
         while True:
             ASG_CONSENSUS_ITERATIONS.inc()
             scores = {}
+            new_justifications = {}
             for agent in initial_roster:
+                peer_feedback = ""
+                if justifications:
+                    peer_feedback = "Here is the peer feedback from the previous round of deliberation:\n" + "\n".join(
+                        f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
+                        for a, info in justifications.items()
+                    ) + "\n\n"
+
                 if api_key and adapter is not None:
                     prompt = (
+                        f"{peer_feedback}"
                         f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
                         f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
-                        "Evaluate the suitability of this agent compared to the others and rate it on a scale from 1.0 to 10.0. "
-                        "Return only a floating point number (e.g., 8.5)."
+                        "Considering the feedback from your peers (if any), rate the suitability of this agent compared to the others.\n"
+                        "Format your response exactly as:\n"
+                        "Score: <number between 1.0 and 10.0>\n"
+                        "Reason: <brief justification of why this role is suitable or not>"
                     )
                     res = adapter._call_gemini_and_track(prompt)
-                    try:
-                        score = float(res)
-                    except Exception:
-                        score = 7.5
+                    score = 7.5
+                    justification = "No justification provided."
+                    if "Score:" in res:
+                        try:
+                            parts = res.split("Reason:")
+                            score_part = parts[0].replace("Score:", "").strip()
+                            score = float(score_part)
+                            if len(parts) > 1:
+                                justification = parts[1].strip()
+                        except Exception:
+                            score = 7.5
+                    else:
+                        try:
+                            score = float(res)
+                        except Exception:
+                            score = 7.5
                 else:
                     if iteration <= B:
-                        # High score to allow immediate agreement if target_tau is low
                         score = 8.0 + rng.uniform(-0.1, 0.1)
                     else:
-                        # Score stays above 7.0, with a positive thermal escape helper
-                        # that scales with temperature (capped at 0.1 to prevent overflow)
                         escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
                         score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
+                    justification = f"Mock justification for {agent} at iteration {iteration}"
+
                 scores[agent] = score
+                new_justifications[agent] = {"score": score, "justification": justification}
+            
+            justifications = new_justifications
             
             avg_score = sum(scores.values()) / len(initial_roster)
 
