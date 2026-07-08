@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: self-governance-webhook
+  labels:
+    app: self-governance-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: self-governance-webhook
+  template:
+    metadata:
+      labels:
+        app: self-governance-webhook
+    spec:
+      containers:
+      - name: webhook
+        image: self-governance-image:latest
+        command: ["uvicorn", "self_governance.github_app:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          value: "sqlite:////app/data/self_governance.db"
+        - name: ALLOW_GUEST_ACCESS
+          value: "False"
+        - name: STRIPE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: stripe-secrets
+              key: api-key
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gemini-secrets
+              key: api-key
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: self-governance-webhook-service
+spec:
+  selector:
+    app: self-governance-webhook
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

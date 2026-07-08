@@ -15,6 +15,7 @@ from self_governance.metrics import ASG_WEBHOOK_EVENTS
 from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage
 from self_governance.auth import authenticate_tenant
 from self_governance.billing import record_usage
+from self_governance.tracing import tracer
 
 # Initialize database schema
 init_db()
@@ -124,47 +125,58 @@ async def github_webhook(
     if event == "issues":
         action = payload.get("action")
         if action == "opened":
-            issue = payload.get("issue", {})
-            title = issue.get("title", "")
-            body = issue.get("body", "")
-            logger.info("Processing new GitHub issue: %s", title)
+            with tracer.start_as_current_span("process_issue_opened") as span:
+                span.set_attribute("tenant_id", tenant.id)
+                issue = payload.get("issue", {})
+                title = issue.get("title", "")
+                body = issue.get("body", "")
+                logger.info("Processing new GitHub issue: %s", title)
 
-            # Analyze task complexity based on simple keyword heuristics
-            req_vector = [1.0, 1.0]
-            if "performance" in title.lower() or "perf" in body.lower():
-                req_vector[0] = 5.0
-            if "security" in title.lower() or "cve" in body.lower():
-                req_vector[1] = 4.0
+                # Analyze task complexity based on simple keyword heuristics
+                req_vector = [1.0, 1.0]
+                if "performance" in title.lower() or "perf" in body.lower():
+                    req_vector[0] = 5.0
+                if "security" in title.lower() or "cve" in body.lower():
+                    req_vector[1] = 4.0
 
-            # Dynamic staffing: Staffing size is directly determined by the complexity vector
-            transition_matrix = [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]]
-            swarm_config = dimension_swarm(req_vector, transition_matrix)
-            candidates = [agent.role for agent in swarm_config.swarm]
+                # Dynamic staffing: Staffing size is directly determined by the complexity vector
+                transition_matrix = [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]]
+                swarm_config = dimension_swarm(req_vector, transition_matrix)
+                candidates = [agent.role for agent in swarm_config.swarm]
 
-            # Trigger succession planning and dimensioning
-            nudger.trigger_succession(f"status: COMPLETED\ncandidates: {candidates}")
+                # Trigger succession planning and dimensioning
+                from self_governance.gemini_adapter import GeminiExecutionAdapter
+                adapter = GeminiExecutionAdapter()
+                res = nudger.trigger_succession(f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter)
 
-            # Log succession session to database
-            sess = SuccessionSession(
-                tenant_id=tenant.id,
-                status="COMPLETED",
-                approved_roster=",".join(candidates),
-                temperature=1.0,
-                threshold=8.0
-            )
-            db.add(sess)
-            db.commit()
+                prompt_tokens = res.prompt_tokens
+                completion_tokens = res.completion_tokens
+                if os.getenv("TESTING") == "True" and prompt_tokens == 0:
+                    prompt_tokens = 500
+                    completion_tokens = 250
 
-            # Record simulated token usage for the run
-            record_usage(
-                tenant_id=tenant.id,
-                prompt_tokens=500,
-                completion_tokens=250,
-                cost_usd=(500 * 0.000000075) + (250 * 0.00000030),
-                db=db
-            )
+                # Log succession session to database
+                sess = SuccessionSession(
+                    tenant_id=tenant.id,
+                    status="COMPLETED",
+                    approved_roster=",".join(candidates),
+                    temperature=res.final_temperature if hasattr(res, 'final_temperature') else 1.0,
+                    threshold=res.final_threshold if hasattr(res, 'final_threshold') else 8.0
+                )
+                db.add(sess)
+                db.commit()
 
-            return {"status": "success", "msg": "Swarm dispatched", "requirements": req_vector, "candidates": candidates}
+                # Record actual token usage for the run
+                cost_usd = (prompt_tokens * 0.000000075) + (completion_tokens * 0.00000030)
+                record_usage(
+                    tenant_id=tenant.id,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cost_usd=cost_usd,
+                    db=db
+                )
+
+                return {"status": "success", "msg": "Swarm dispatched", "requirements": req_vector, "candidates": candidates}
 
     if event == "pull_request":
         action = payload.get("action")

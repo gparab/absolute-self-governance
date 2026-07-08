@@ -9,6 +9,7 @@ import sys
 from typing import List, Dict, Any, Optional
 from self_governance.base_adapter import BaseExecutionAdapter
 from self_governance.models import Agent
+from self_governance.tracing import tracer
 
 logger = logging.getLogger("self_governance.gemini_adapter")
 
@@ -82,19 +83,23 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def _call_gemini_and_track(self, prompt: str) -> str:
         """Call Gemini and accumulate token counts for pricing calculations."""
-        if os.getenv("TESTING") == "True":
-            return call_gemini(prompt, self.api_key)
-        res = call_gemini_with_metadata(prompt, self.api_key)
-        prompt_t = res.get("prompt_tokens", 0)
-        completion_t = res.get("completion_tokens", 0)
-        self.prompt_tokens += prompt_t
-        self.completion_tokens += completion_t
-        
-        cost = (prompt_t * 0.000000075) + (completion_t * 0.00000030)
-        from self_governance.metrics import ASG_SWARM_COST_USD
-        ASG_SWARM_COST_USD.inc(cost)
-        
-        return res.get("text", "")
+        with tracer.start_as_current_span("gemini_api_call") as span:
+            if os.getenv("TESTING") == "True":
+                return call_gemini(prompt, self.api_key)
+            res = call_gemini_with_metadata(prompt, self.api_key)
+            prompt_t = res.get("prompt_tokens", 0)
+            completion_t = res.get("completion_tokens", 0)
+            self.prompt_tokens += prompt_t
+            self.completion_tokens += completion_t
+            
+            span.set_attribute("prompt_tokens", prompt_t)
+            span.set_attribute("completion_tokens", completion_t)
+            
+            cost = (prompt_t * 0.000000075) + (completion_t * 0.00000030)
+            from self_governance.metrics import ASG_SWARM_COST_USD
+            ASG_SWARM_COST_USD.inc(cost)
+            
+            return res.get("text", "")
 
     def _run_or_fallback(self, prompt: str, fallback_msg: str) -> Dict[str, Any]:
         """Verify API key presence and return Gemini output or a fallback message."""

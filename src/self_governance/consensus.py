@@ -1,8 +1,9 @@
 import os
 import random
 import math
-from typing import List, Optional
+from typing import List, Optional, Any
 from self_governance.gemini_adapter import call_gemini
+from self_governance.tracing import tracer
 
 
 class ConsensusResult(tuple):
@@ -11,7 +12,10 @@ class ConsensusResult(tuple):
     Contains the approved roster, final temperature, and final threshold.
     """
     def __new__(cls, approved_roster: List[str], final_temperature: float, final_threshold: float) -> "ConsensusResult":
-        return super().__new__(cls, (approved_roster, final_temperature, final_threshold))
+        obj = super().__new__(cls, (approved_roster, final_temperature, final_threshold))
+        obj.prompt_tokens = 0
+        obj.completion_tokens = 0
+        return obj
 
     @property
     def approved_roster(self) -> List[str]:
@@ -36,7 +40,8 @@ def run_consensus(
     initial_temp: float = 1.0,
     gamma: float = 0.1,
     delta: float = 0.5,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    adapter: Optional[Any] = None
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -79,74 +84,87 @@ def run_consensus(
     if not isinstance(target_tau, (int, float)) or not math.isfinite(target_tau):
         raise ValueError("target_tau must be a finite number")
 
-    # Deduplicate initial_roster preserving order at the beginning of run_consensus
-    unique_roster = []
-    for agent in initial_roster:
-        if agent not in unique_roster:
-            unique_roster.append(agent)
-    initial_roster = unique_roster
-
-    if not initial_roster:
-        return ConsensusResult([], float(initial_temp), float(target_tau))
-
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random.Random()
-    temp = float(initial_temp)
-    tau = float(target_tau)
-    iteration = 1
-
-    api_key = os.getenv("GEMINI_API_KEY")
-
-    from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
-
-    while True:
-        ASG_CONSENSUS_ITERATIONS.inc()
-        scores = {}
+    with tracer.start_as_current_span("run_consensus") as span:
+        span.set_attribute("initial_roster", ",".join(initial_roster))
+        # Deduplicate initial_roster preserving order at the beginning of run_consensus
+        unique_roster = []
         for agent in initial_roster:
-            if api_key:
-                prompt = (
-                    f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
-                    f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
-                    "Evaluate the suitability of this agent compared to the others and rate it on a scale from 1.0 to 10.0. "
-                    "Return only a floating point number (e.g., 8.5)."
-                )
-                res = call_gemini(prompt, api_key)
-                try:
-                    score = float(res)
-                except Exception:
-                    score = 7.5
-            else:
-                if iteration <= B:
-                    # High score to allow immediate agreement if target_tau is low
-                    score = 8.0 + rng.uniform(-0.1, 0.1)
+            if agent not in unique_roster:
+                unique_roster.append(agent)
+        initial_roster = unique_roster
+
+        if not initial_roster:
+            return ConsensusResult([], float(initial_temp), float(target_tau))
+
+        if seed is not None:
+            rng = random.Random(seed)
+        else:
+            rng = random.Random()
+        temp = float(initial_temp)
+        tau = float(target_tau)
+        iteration = 1
+
+        api_key = os.getenv("GEMINI_API_KEY")
+
+        if api_key and adapter is None:
+            from self_governance.gemini_adapter import GeminiExecutionAdapter
+            adapter = GeminiExecutionAdapter(api_key=api_key)
+
+        from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
+
+        while True:
+            ASG_CONSENSUS_ITERATIONS.inc()
+            scores = {}
+            for agent in initial_roster:
+                if api_key and adapter is not None:
+                    prompt = (
+                        f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
+                        f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
+                        "Evaluate the suitability of this agent compared to the others and rate it on a scale from 1.0 to 10.0. "
+                        "Return only a floating point number (e.g., 8.5)."
+                    )
+                    res = adapter._call_gemini_and_track(prompt)
+                    try:
+                        score = float(res)
+                    except Exception:
+                        score = 7.5
                 else:
-                    # Score stays above 7.0, with a positive thermal escape helper
-                    # that scales with temperature (capped at 0.1 to prevent overflow)
-                    escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
-                    score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
-            scores[agent] = score
-        
-        avg_score = sum(scores.values()) / len(initial_roster)
+                    if iteration <= B:
+                        # High score to allow immediate agreement if target_tau is low
+                        score = 8.0 + rng.uniform(-0.1, 0.1)
+                    else:
+                        # Score stays above 7.0, with a positive thermal escape helper
+                        # that scales with temperature (capped at 0.1 to prevent overflow)
+                        escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
+                        score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
+                scores[agent] = score
+            
+            avg_score = sum(scores.values()) / len(initial_roster)
 
-        if avg_score >= tau:
-            approved = [agent for agent, score in scores.items() if score >= tau]
-            return ConsensusResult(approved, temp, tau)
+            if avg_score >= tau:
+                approved = [agent for agent, score in scores.items() if score >= tau]
+                result = ConsensusResult(approved, temp, tau)
+                if adapter is not None:
+                    result.prompt_tokens = adapter.prompt_tokens
+                    result.completion_tokens = adapter.completion_tokens
+                return result
 
-        # Add a safety loop iteration limit of 1000. If iteration > 1000,
-        # break the loop and return the best effort ConsensusResult.
-        if iteration > 1000:
-            approved = [agent for agent, score in scores.items() if score >= tau]
-            if not approved:
-                max_agent = max(scores, key=scores.get)
-                approved = [max_agent]
-            return ConsensusResult(approved, temp, tau)
+            # Add a safety loop iteration limit of 1000. If iteration > 1000,
+            # break the loop and return the best effort ConsensusResult.
+            if iteration > 1000:
+                approved = [agent for agent, score in scores.items() if score >= tau]
+                if not approved:
+                    max_agent = max(scores, key=scores.get)
+                    approved = [max_agent]
+                result = ConsensusResult(approved, temp, tau)
+                if adapter is not None:
+                    result.prompt_tokens = adapter.prompt_tokens
+                    result.completion_tokens = adapter.completion_tokens
+                return result
 
-        # Update temp and tau for the next iteration if iteration threshold is met
-        if iteration >= B:
-            temp += gamma
-            tau = max(7.0, tau - delta)
+            # Update temp and tau for the next iteration if iteration threshold is met
+            if iteration >= B:
+                temp += gamma
+                tau = max(7.0, tau - delta)
 
-        iteration += 1
-
+            iteration += 1

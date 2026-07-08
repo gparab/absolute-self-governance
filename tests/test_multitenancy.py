@@ -20,8 +20,9 @@ def setup_test_db():
     db.query(Tenant).delete()
     db.commit()
     
-    tenant_a = Tenant(id="tenantA", name="Tenant Alpha", stripe_customer_id="cus_alpha123", api_key_hash="hashA")
-    tenant_b = Tenant(id="tenantB", name="Tenant Beta", stripe_customer_id="cus_beta456", api_key_hash="hashB")
+    from self_governance.auth import hash_key
+    tenant_a = Tenant(id="tenantA", name="Tenant Alpha", stripe_customer_id="cus_alpha123", api_key_hash=hash_key("tenant_tenantA_key"))
+    tenant_b = Tenant(id="tenantB", name="Tenant Beta", stripe_customer_id="cus_beta456", api_key_hash=hash_key("tenant_tenantB_key"))
     db.add(tenant_a)
     db.add(tenant_b)
     db.commit()

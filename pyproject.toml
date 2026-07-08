@@ -17,6 +17,9 @@ dependencies = [
     "uvicorn",
     "prometheus-client",
     "sqlalchemy",
+    "stripe",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
 ]
 
 [tool.setuptools.packages.find]

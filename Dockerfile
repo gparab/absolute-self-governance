@@ -22,6 +22,10 @@ RUN uv sync --no-install-project
 # Stage 2: Runtime image
 FROM python:3.13-slim AS runner
 
+# Create a non-root user and group
+RUN groupadd -g 10001 appgroup && \
+    useradd -u 10001 -g appgroup -m -s /bin/bash appuser
+
 WORKDIR /app
 
 ENV PATH="/app/.venv/bin:${PATH}" \
@@ -32,6 +36,10 @@ COPY src/ ./src
 COPY pyproject.toml ./
 
 RUN pip install --no-deps -e .
+
+RUN chown -R appuser:appgroup /app
+
+USER appuser
 
 ENTRYPOINT ["self-governance"]
 CMD ["--help"]

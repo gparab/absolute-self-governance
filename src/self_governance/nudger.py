@@ -4,8 +4,8 @@ import yaml
 import json
 import logging
 import threading
-from typing import Optional
-from self_governance.consensus import run_consensus
+from typing import Optional, Any
+from self_governance.consensus import run_consensus, ConsensusResult
 from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
 from watchdog.observers import Observer
@@ -171,12 +171,13 @@ class ContinuousNudger:
             observer.stop()
             observer.join()
 
-    def trigger_succession(self, handoff_content: str) -> None:
+    def trigger_succession(self, handoff_content: str, adapter: Optional[Any] = None) -> ConsensusResult:
         """
         Execute SuccessionSession with TETD consensus, append logs, and draft next prompt.
 
         Args:
             handoff_content: The YAML content from the handoff file.
+            adapter: Optional GeminiExecutionAdapter instance.
 
         Raises:
             HandoffValueError: If handoff content is malformed or invalid.
@@ -207,7 +208,8 @@ class ContinuousNudger:
             target_tau=self.config.consensus_target_threshold,
             initial_temp=self.config.consensus_initial_temperature,
             gamma=self.config.consensus_temperature_step,
-            delta=self.config.consensus_decay_step
+            delta=self.config.consensus_decay_step,
+            adapter=adapter
         )
         approved_roster = res.approved_roster
 
@@ -230,4 +232,6 @@ class ContinuousNudger:
         log_entry = f"Succession Session Completed. Approved Roster: [{approved_str}]\n"
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_entry)
+
+        return res
 
