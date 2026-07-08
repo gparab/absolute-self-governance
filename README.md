@@ -75,7 +75,7 @@ To handle extremely large scaling workloads (e.g., $S_t$ elements in the million
 
 1. Let $C = [c_0, c_1, \dots, c_{M-1}]$ be the list of agent counts per role.
 2. The prefix sums array $P$ is defined as: $P_k = \sum_{j=0}^{k} c_j$.
-3. When querying index $idx$, binary search determines $role\_idx$ such that $P_{role\_idx - 1} \le idx < P_{role\_idx}$, instantiating `Agent(role=f"role_{role_idx}", ...)` dynamically.
+3. When querying index $idx$, binary search determines $role\_idx$ such that $P_{role\_idx - 1} \le idx < P_{role\_idx}$, dynamically mapping the role index to a specialized expert persona from the `agency-agents` registry (e.g., `"Backend Wizard"`, `"QA Specialist"`, or `"Security Auditor"`) to instantiate the `Agent` object on-demand.
 
 ---
 
@@ -248,8 +248,8 @@ from self_governance.dimensioning import dimension_swarm
 
 requirement_vector = [2.0, 3.0]
 transition_matrix = [
-    [1.0, 0.5],  # role_0 mapping
-    [0.0, 1.0]   # role_1 mapping
+    [1.0, 0.5],  # Backend Wizard mapping
+    [0.0, 1.0]   # QA Specialist mapping
 ]
 
 swarm_config = dimension_swarm(requirement_vector, transition_matrix)
@@ -263,7 +263,7 @@ print(json.dumps(swarm_config.dict(), indent=2))
 
 ### Running the Test Suite
 
-The test suite validates correctness across four testing tiers (Feature Coverage, Boundary/Corner Cases, Cross-Feature Combinations, and Real-World Workloads) with **74 total test cases**.
+The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **125 total test cases**.
 
 #### Run all tests using `pytest`
 ```bash
@@ -350,8 +350,8 @@ The orchestrator writes the finalized swarm configuration in standard nested JSO
 --- Swarm Configuration ---
 {
   "swarm": [
-    {"role": "role_0", "prompt": "Prompt for role_0"},
-    {"role": "role_1", "prompt": "Prompt for role_1"}
+    {"role": "Backend Wizard", "prompt": "You are a Backend Wizard..."},
+    {"role": "QA Specialist", "prompt": "You are a QA Specialist..."}
   ]
 }
 --- End Configuration ---
@@ -359,6 +359,16 @@ Prompt: Guide the swarm to collaborate on the next phase.
 ```
 
 Your IDE agent runner (Cursor, Claude Code, etc.) reads this newly generated prompt configuration to spin up the next set of specialized worker subagents, executing the next SDLC cycle autonomously.
+
+### Specialized Swarm Personas (agency-agents Catalog)
+
+To make the generated agent swarms highly specialized and capable of handling complex SDLC flows, the orchestrator integrates the `agency-agents` persona catalog to resolve requirements to concrete expert roles:
+
+* **Backend Wizard**: Expert in backend engineering, modular structures, proper type annotations, and clean code principles.
+* **QA Specialist**: Expert in designing complete unit/integration test suites, covering boundary conditions, and checking for concurrency race conditions.
+* **Security Auditor**: Expert in threat modeling, path traversal checking, permission scopes, and authentication robustness.
+
+These personas are dynamically fetched and injected into both the **consensus deliberation prompts** (to inform voting evaluations) and the **prefix-sum dimensioning output** (stored in `prompt_draft.md`).
 
 ---
 
