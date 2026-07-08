@@ -1,3 +1,4 @@
+import os
 import logging
 import time
 from typing import List, Dict, Any, Optional
@@ -55,7 +56,14 @@ def dispatch_swarm_execution(
     """
     Execute task requirements using the provided adapter.
     """
-    exec_adapter = adapter if adapter is not None else MockExecutionAdapter()
+    if adapter is not None:
+        exec_adapter = adapter
+    else:
+        if os.getenv("GEMINI_API_KEY"):
+            from self_governance.gemini_adapter import GeminiExecutionAdapter
+            exec_adapter = GeminiExecutionAdapter()
+        else:
+            exec_adapter = MockExecutionAdapter()
     logger.info("Starting execution pipeline using adapter: %s", exec_adapter.__class__.__name__)
     
     start_time = time.time()

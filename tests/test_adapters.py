@@ -106,3 +106,21 @@ def test_gemini_execute_tests_subprocess(monkeypatch):
     assert res["status"] == "completed"
     assert "passed" in res["output"]
 
+def test_gemini_path_traversal_blocked(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    
+    # Mock call_gemini to return a path traversal write attempt payload
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "### WRITE_FILE: ../../../etc/passwd\n"
+        "```\n"
+        "root:x:0:0:root:/root:/bin/bash\n"
+        "```"
+    ))
+    
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Write malformed path"})
+    assert res["status"] == "completed"
+    # Ensure no files were written
+    assert len(res["written_files"]) == 0
+
+

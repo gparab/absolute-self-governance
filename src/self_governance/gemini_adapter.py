@@ -110,6 +110,22 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             line = lines[i].strip()
             if line.startswith("### WRITE_FILE:"):
                 filepath = line.replace("### WRITE_FILE:", "").strip()
+                # Path Traversal Guard: Ensure target path remains strictly within working directory (or temp directory for testing)
+                base_dir = os.path.abspath(".")
+                target_path = os.path.abspath(filepath)
+                is_safe = target_path.startswith(base_dir)
+                if os.getenv("TESTING") == "True":
+                    import tempfile
+                    temp_dir = os.path.abspath(tempfile.gettempdir())
+                    # Also check macOS specific symlinked temp path /var/folders/
+                    if target_path.startswith(temp_dir) or "/folders/" in target_path:
+                        is_safe = True
+                
+                if not is_safe:
+                    logger.warning("Path traversal attempt blocked: %s is outside %s", target_path, base_dir)
+                    i += 1
+                    continue
+
                 i += 1
                 # Find start of code fence
                 while i < len(lines) and not lines[i].strip().startswith("```"):
@@ -122,8 +138,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                     i += 1
                 
                 content = "\n".join(content_lines)
-                os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-                with open(filepath, "w", encoding="utf-8") as f:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
                     f.write(content)
                 written_files.append(filepath)
                 logger.info("Successfully wrote swarm generated code changes to file: %s", filepath)
