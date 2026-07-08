@@ -19,6 +19,8 @@ This project implements the theoretical framework for **Absolute Self-Governance
     - [Installation](#installation-instructions)
     - [CLI / Programmatic Execution](#cli--programmatic-execution)
     - [Running the Test Suite](#running-the-test-suite)
+6. [IDE Agent Runner Integration](#6-ide-agent-runner-integration)
+
 
 ---
 
@@ -288,3 +290,57 @@ uv run pytest
   ```bash
   pytest tests/test_stress.py
   ```
+
+---
+
+## 6. IDE Agent Runner Integration
+
+The Absolute Self-Governance Orchestrator integrates seamlessly with external IDE Agent Runners (such as Claude Code, Cursor, or the Antigravity IDE) via a decoupled file-system bus. This allows agents executing tasks in your IDE to scale, vote, and transition state automatically.
+
+### Integration Architecture Diagram
+
+![IDE Integration Architecture Diagram](assets/ide_integration_architecture.jpg)
+
+### Steps to Use
+
+Follow these steps to coordinate an autonomous development swarm in your workspace:
+
+#### Step 1: Initialize the Watcher
+Start the orchestrator background process to monitor your project workspace directory (replace `.` with the path to your workspace if different):
+```bash
+uv run self-governance run-nudger --dir .
+```
+This spawns a thread-safe `watchdog` monitoring loop tracking `handoff.md`.
+
+#### Step 2: Set the Initial Agent Roster
+Create a file named `handoff.md` in the directory root containing your starting workspace metadata and target tasks:
+```yaml
+status: COMPLETED
+candidates:
+  - agent_code_gen
+  - agent_unit_testing
+  - agent_refactoring
+```
+As soon as you save this file, the `watchdog` event triggers the Succession Voting session.
+
+#### Step 3: Run Succession Voting
+The orchestrator simulates a democratic consensus council across the candidate agent list using the TETD algorithm. 
+- You will see logs detailing the consensus rounds, temperature modifications, and threshold decays.
+- Once consensus is achieved, the approved roster details are automatically committed to `roster_rotation_log.md`.
+
+#### Step 4: Retrieve Swarm Prompt Context
+The orchestrator writes the finalized swarm configuration in standard nested JSON format to `prompt_draft.md`:
+```yaml
+--- Swarm Configuration ---
+{
+  "swarm": [
+    {"role": "role_0", "prompt": "Prompt for role_0"},
+    {"role": "role_1", "prompt": "Prompt for role_1"}
+  ]
+}
+--- End Configuration ---
+Prompt: Guide the swarm to collaborate on the next phase.
+```
+
+Your IDE agent runner (Cursor, Claude Code, etc.) reads this newly generated prompt configuration to spin up the next set of specialized worker subagents, executing the next SDLC cycle autonomously.
+
