@@ -1,3 +1,5 @@
+import os
+import time
 import pytest
 from self_governance.base_adapter import BaseExecutionAdapter
 from self_governance.execution import MockExecutionAdapter, dispatch_swarm_execution
@@ -35,3 +37,72 @@ def test_dispatch_with_custom_adapter():
     assert "plan" in res
     assert "security" in res
     assert "documentation" in res
+
+def test_call_gemini_retry_backoff(monkeypatch):
+    import urllib.request
+    import urllib.error
+    from unittest.mock import MagicMock
+    from self_governance.gemini_adapter import call_gemini
+    
+    attempts = []
+    
+    def mock_urlopen(req, timeout=15):
+        attempts.append(req)
+        if len(attempts) == 1:
+            # First try raises HTTPError 429
+            fp = MagicMock()
+            fp.read.return_value = b"Rate limit exceeded"
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", req.headers, fp)
+        else:
+            # Second try returns valid content
+            resp = MagicMock()
+            resp.read.return_value = b'{"candidates": [{"content": {"parts": [{"text": "Mock response"}]}}]}'
+            resp.__enter__.return_value = resp
+            return resp
+            
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    monkeypatch.setattr(time, "sleep", lambda x: None) # Fast sleep bypass
+    
+    result = call_gemini("Test prompt", "test_key")
+    assert result == "Mock response"
+    assert len(attempts) == 2
+
+def test_gemini_execute_development_writes_file(tmp_path, monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    
+    # Mock call_gemini to return a formatted code payload
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "Some thoughts before code.\n"
+        "### WRITE_FILE: " + os.path.join(str(tmp_path), "swarm_generated.py") + "\n"
+        "```python\n"
+        "def generated_func():\n"
+        "    return 42\n"
+        "```"
+    ))
+    
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Write test func"})
+    assert res["status"] == "completed"
+    assert "swarm_generated.py" in res["written_files"][0]
+    
+    # Check that file was actually written to disk
+    with open(res["written_files"][0], "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "def generated_func():" in content
+
+def test_gemini_execute_tests_subprocess(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    import subprocess
+    from unittest.mock import MagicMock
+    
+    mock_run = MagicMock()
+    mock_run.return_value.returncode = 0
+    mock_run.return_value.stdout = "104 passed in 0.50s"
+    mock_run.return_value.stderr = ""
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    
+    adapter = GeminiExecutionAdapter(api_key=None)
+    res = adapter.execute_tests([], {})
+    assert res["status"] == "completed"
+    assert "passed" in res["output"]
+

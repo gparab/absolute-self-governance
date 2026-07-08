@@ -15,17 +15,26 @@ app = FastAPI(title="Self-Governing Software Factory App")
 config = OrchestratorConfig()
 nudger = ContinuousNudger(working_directory=".", config=config)
 
+# Startup check
+if os.getenv("TESTING") != "True" and not os.getenv("WEBHOOK_SECRET"):
+    raise ValueError("WEBHOOK_SECRET environment variable is required.")
+
 async def verify_signature(request: Request):
-    """Verify GitHub webhook HMAC signature if secret is configured."""
+    """Verify GitHub webhook HMAC signature."""
     secret = os.getenv("WEBHOOK_SECRET")
-    if secret:
-        signature = request.headers.get("X-Hub-Signature-256")
-        if not signature:
-            raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
-        body = await request.body()
-        expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise HTTPException(status_code=401, detail="Invalid signature")
+    if os.getenv("TESTING") == "True" and not secret:
+        return
+        
+    if not secret:
+        raise HTTPException(status_code=500, detail="WEBHOOK_SECRET is not configured.")
+        
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not signature:
+        raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
+    body = await request.body()
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
 @app.post("/webhook")
 async def github_webhook(request: Request):

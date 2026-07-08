@@ -97,3 +97,16 @@ def test_webhook_hmac_verification(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "msg": "pong"}
 
+def test_webhook_mandatory_secret(monkeypatch):
+    import sys
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("TESTING", "False")
+    
+    # Remove from sys.modules if already imported
+    if "self_governance.github_app" in sys.modules:
+        del sys.modules["self_governance.github_app"]
+        
+    with pytest.raises(ValueError, match="WEBHOOK_SECRET environment variable is required"):
+        import self_governance.github_app
+
+

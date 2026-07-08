@@ -2,6 +2,10 @@ import os
 import json
 import logging
 import urllib.request
+import urllib.error
+import time
+import subprocess
+import sys
 from typing import List, Dict, Any
 from self_governance.base_adapter import BaseExecutionAdapter
 from self_governance.models import Agent
@@ -9,7 +13,7 @@ from self_governance.models import Agent
 logger = logging.getLogger("self_governance.gemini_adapter")
 
 def call_gemini(prompt: str, api_key: str) -> str:
-    """Make a direct HTTP call to the Gemini API."""
+    """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     data = {
@@ -17,18 +21,37 @@ def call_gemini(prompt: str, api_key: str) -> str:
             "parts": [{"text": prompt}]
         }]
     }
-    req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            res_data = json.loads(response.read().decode())
-            candidates = res_data.get("candidates", [])
-            if candidates:
-                content = candidates[0].get("content", {})
-                parts = content.get("parts", [])
-                if parts:
-                    return parts[0].get("text", "").strip()
-    except Exception as e:
-        logger.error("Failed to query Gemini API: %s", e)
+    
+    attempts = 3
+    delay = 1.0
+    
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                res_data = json.loads(response.read().decode())
+                candidates = res_data.get("candidates", [])
+                if candidates:
+                    content = candidates[0].get("content", {})
+                    parts = content.get("parts", [])
+                    if parts:
+                        return parts[0].get("text", "").strip()
+        except urllib.error.HTTPError as he:
+            if he.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
+                logger.warning("Gemini API returned transient error %s. Retrying in %s seconds...", he.code, delay)
+                time.sleep(delay)
+                delay *= 2.0
+            else:
+                logger.error("Gemini API HTTP Error %s: %s", he.code, he.read().decode())
+                break
+        except Exception as e:
+            if attempt < attempts - 1:
+                logger.warning("Query error: %s. Retrying in %s seconds...", e, delay)
+                time.sleep(delay)
+                delay *= 2.0
+            else:
+                logger.error("Failed to query Gemini API: %s", e)
+                break
     return ""
 
 class GeminiExecutionAdapter(BaseExecutionAdapter):
@@ -65,14 +88,51 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         if not self.api_key:
             return {
                 "status": "completed",
-                "output": "Gemini Dev: Code changes written successfully."
+                "output": "Gemini Dev: Code changes written successfully.",
+                "written_files": []
             }
             
-        prompt = f"Implement development changes based on the following plan: {json.dumps(plan)}. Generate the code structure."
+        prompt = (
+            f"Implement development changes based on the following plan: {json.dumps(plan)}.\n"
+            "If you need to write code to files, write each file in the following format:\n"
+            "### WRITE_FILE: relative/path/to/file.py\n"
+            "```\n"
+            "code contents here\n"
+            "```"
+        )
         response_text = call_gemini(prompt, self.api_key)
+        
+        # Parse and write files to disk
+        written_files = []
+        lines = response_text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if line.startswith("### WRITE_FILE:"):
+                filepath = line.replace("### WRITE_FILE:", "").strip()
+                i += 1
+                # Find start of code fence
+                while i < len(lines) and not lines[i].strip().startswith("```"):
+                    i += 1
+                i += 1 # Skip ``` line
+                
+                content_lines = []
+                while i < len(lines) and not lines[i].strip().startswith("```"):
+                    content_lines.append(lines[i])
+                    i += 1
+                
+                content = "\n".join(content_lines)
+                os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+                written_files.append(filepath)
+                logger.info("Successfully wrote swarm generated code changes to file: %s", filepath)
+            i += 1
+            
         return {
             "status": "completed",
-            "output": response_text or "Gemini Dev: Code changes written successfully."
+            "output": response_text or "Gemini Dev: Code changes written successfully.",
+            "written_files": written_files
         }
 
     def review_code(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,17 +152,34 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Tester Swarm: Initiating validation test suites...")
-        if not self.api_key:
+        
+        try:
+            res = subprocess.run(
+                [sys.executable, "-m", "pytest"],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            test_output = res.stdout + "\n" + res.stderr
+            status = "completed" if res.returncode == 0 else "failed"
+            logger.info("Subprocess test runner finished with code %s", res.returncode)
+        except Exception as e:
+            status = "failed"
+            test_output = f"Test execution failed: {e}"
+            logger.error("Failed to run subprocess test suite: %s", e)
+            
+        if self.api_key:
+            prompt = f"Review the test output and state if any failures require fixes: {test_output}"
+            response_text = call_gemini(prompt, self.api_key)
             return {
-                "status": "completed",
-                "output": "Gemini Test: 100% of unit tests passed."
+                "status": status,
+                "output": response_text,
+                "raw_test_output": test_output
             }
             
-        prompt = f"Recommend test cases for the following changes: {json.dumps(changes)}"
-        response_text = call_gemini(prompt, self.api_key)
         return {
-            "status": "completed",
-            "output": response_text or "Gemini Test: 100% of unit tests passed."
+            "status": status,
+            "output": test_output
         }
 
     def run_security_scan(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
