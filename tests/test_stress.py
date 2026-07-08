@@ -112,3 +112,46 @@ def test_nudger_concurrency_stress():
             
         assert watcher_thread.is_alive(), "Watcher thread crashed or stopped!"
         assert success, "Nudger failed to recover or process the final COMPLETED state!"
+
+def test_webhook_concurrent_load():
+    from fastapi.testclient import TestClient
+    from self_governance.github_app import app
+    from self_governance.db import SessionLocal, RateLimitEntry
+    
+    db = SessionLocal()
+    db.query(RateLimitEntry).delete()
+    db.commit()
+    db.close()
+    
+    client = TestClient(app)
+    
+    results = []
+    threads = []
+    
+    def worker():
+        response = client.get(
+            "/dashboard",
+            headers={"Authorization": "Bearer tenant_tenantA_key"}
+        )
+        results.append(response.status_code)
+        
+    for _ in range(120):
+        t = threading.Thread(target=worker)
+        threads.append(t)
+        t.start()
+        
+    for t in threads:
+        t.join()
+        
+    status_200 = results.count(200)
+    status_429 = results.count(429)
+    
+    print(f"Concurrent stress test: {status_200} requests succeeded (200), {status_429} requests rate-limited (429)")
+    
+    assert status_200 == 100
+    assert status_429 == 20
+    
+    db = SessionLocal()
+    db.query(RateLimitEntry).delete()
+    db.commit()
+    db.close()
