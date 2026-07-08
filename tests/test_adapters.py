@@ -123,4 +123,34 @@ def test_gemini_path_traversal_blocked(monkeypatch):
     # Ensure no files were written
     assert len(res["written_files"]) == 0
 
+def test_path_traversal_prefix_bug(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    
+    base_dir = os.path.abspath(".")
+    malicious_path = base_dir + "-malicious/escaped.py"
+    
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: (
+        "### WRITE_FILE: " + malicious_path + "\n"
+        "```\n"
+        "malicious_code()\n"
+        "```"
+    ))
+    
+    monkeypatch.setenv("TESTING", "False")
+    
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Verify prefix bypass"})
+    assert res["status"] == "completed"
+    assert len(res["written_files"]) == 0
+
+def test_gemini_empty_response(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", lambda prompt, key: "")
+    
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Expect failure status"})
+    assert res["status"] == "failed"
+    assert "Failed" in res["output"]
+
+
 

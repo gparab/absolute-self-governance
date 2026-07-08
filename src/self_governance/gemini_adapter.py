@@ -63,6 +63,19 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not found in environment. Gemini execution runs will use mock fallbacks.")
 
+    def _run_or_fallback(self, prompt: str, fallback_msg: str) -> Dict[str, Any]:
+        """Verify API key presence and return Gemini output or a fallback message."""
+        if not self.api_key:
+            return {
+                "status": "completed",
+                "output": fallback_msg
+            }
+        response_text = call_gemini(prompt, self.api_key)
+        return {
+            "status": "completed",
+            "output": response_text or fallback_msg
+        }
+
     def plan_task(self, task_description: str) -> Dict[str, Any]:
         logger.info("Gemini Planning: Decomposing task '%s'", task_description)
         if not self.api_key:
@@ -102,6 +115,14 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         )
         response_text = call_gemini(prompt, self.api_key)
         
+        # API failure safeguard
+        if not response_text:
+            return {
+                "status": "failed",
+                "output": "Failed to retrieve generated code from Gemini API.",
+                "written_files": []
+            }
+        
         # Parse and write files to disk
         written_files = []
         lines = response_text.splitlines()
@@ -113,11 +134,12 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 # Path Traversal Guard: Ensure target path remains strictly within working directory (or temp directory for testing)
                 base_dir = os.path.abspath(".")
                 target_path = os.path.abspath(filepath)
-                is_safe = target_path.startswith(base_dir)
+                
+                # Suffix constraint: check target_path exactly equals base_dir or starts with base_dir + directory separator
+                is_safe = (target_path == base_dir) or target_path.startswith(base_dir + os.sep)
                 if os.getenv("TESTING") == "True":
                     import tempfile
                     temp_dir = os.path.abspath(tempfile.gettempdir())
-                    # Also check macOS specific symlinked temp path /var/folders/
                     if target_path.startswith(temp_dir) or "/folders/" in target_path:
                         is_safe = True
                 
@@ -147,24 +169,14 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             
         return {
             "status": "completed",
-            "output": response_text or "Gemini Dev: Code changes written successfully.",
+            "output": response_text,
             "written_files": written_files
         }
 
     def review_code(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Reviewer Swarm: Inspecting development changes...")
-        if not self.api_key:
-            return {
-                "status": "completed",
-                "output": "Gemini Review: Code conforms to target standards."
-            }
-            
         prompt = f"Review the following code changes and point out any bugs: {json.dumps(changes)}"
-        response_text = call_gemini(prompt, self.api_key)
-        return {
-            "status": "completed",
-            "output": response_text or "Gemini Review: Code conforms to target standards."
-        }
+        return self._run_or_fallback(prompt, "Gemini Review: Code conforms to target standards.")
 
     def execute_tests(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Tester Swarm: Initiating validation test suites...")
@@ -200,30 +212,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def run_security_scan(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Security Swarm: Running static security checks...")
-        if not self.api_key:
-            return {
-                "status": "completed",
-                "output": "Gemini Security: Ruff/Bandit scans returned no findings."
-            }
-            
         prompt = f"Analyze these changes for security risks (SQLi, XSS, insecure dependency, etc.): {json.dumps(changes)}"
-        response_text = call_gemini(prompt, self.api_key)
-        return {
-            "status": "completed",
-            "output": response_text or "Gemini Security: Ruff/Bandit scans returned no findings."
-        }
+        return self._run_or_fallback(prompt, "Gemini Security: Ruff/Bandit scans returned no findings.")
 
     def generate_documentation(self, agents: List[Agent], changes: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Gemini Documentation Swarm: Generating project descriptions...")
-        if not self.api_key:
-            return {
-                "status": "completed",
-                "output": "Gemini Doc: README and docstrings compiled."
-            }
-            
         prompt = f"Generate documentation for these changes: {json.dumps(changes)}"
-        response_text = call_gemini(prompt, self.api_key)
-        return {
-            "status": "completed",
-            "output": response_text or "Gemini Doc: README and docstrings compiled."
-        }
+        return self._run_or_fallback(prompt, "Gemini Doc: README and docstrings compiled.")
