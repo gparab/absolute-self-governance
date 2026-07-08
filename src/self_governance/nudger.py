@@ -158,7 +158,7 @@ class ContinuousNudger:
                             plan_data = json.load(f)
                             if plan_data.get("status") == "APPROVED":
                                 plan_approved = True
-                    except Exception:
+                    except Exception:  # nosec B110
                         pass
 
                 if status == "APPROVED" or plan_approved:
@@ -167,7 +167,7 @@ class ContinuousNudger:
                         if os.path.exists(dry_run_plan_path):
                             try:
                                 os.remove(dry_run_plan_path)
-                            except Exception:
+                            except Exception:  # nosec B110
                                 pass
                     except (
                         HandoffValueError,

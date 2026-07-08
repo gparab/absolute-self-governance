@@ -67,11 +67,11 @@ def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     for f_path in written_files:
         try:
             os.remove(f_path)
-        except Exception:
+        except Exception:  # nosec B110
             pass
     try:
         os.remove(test_filepath)
-    except Exception:
+    except Exception:  # nosec B110
         pass
 
     latency = time.time() - start_time
@@ -143,11 +143,11 @@ def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     for f_path in written_files:
         try:
             os.remove(f_path)
-        except Exception:
+        except Exception:  # nosec B110
             pass
     try:
         os.remove(test_filepath)
-    except Exception:
+    except Exception:  # nosec B110
         pass
 
     latency = time.time() - start_time
