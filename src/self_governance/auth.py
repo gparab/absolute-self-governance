@@ -32,7 +32,7 @@ async def authenticate_tenant(
             set_current_tenant_id("guest")
             guest_tenant = db.query(Tenant).filter(Tenant.id == "guest").first()
             if not guest_tenant:
-                guest_tenant = Tenant(id="guest", api_key_hash="")
+                guest_tenant = Tenant(id="guest", name="Guest Tenant", api_key_hash="")
                 db.add(guest_tenant)
                 db.commit()
                 db.refresh(guest_tenant)
@@ -41,18 +41,19 @@ async def authenticate_tenant(
 
     # The token is the plaintext API key (e.g. tenant_t123_secret)
     # Check if we can extract a tenant ID prefix
-    if "_" in token:
+    if token.startswith("tenant_"):
         parts = token.split("_")
-        tenant_id = parts[0]
-        
-        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-        if tenant:
-            # Reconstruct the expected plaintext prefix matching the db entry API key format
-            # and verify the HMAC signature / hash
-            presented_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-            if hmac.compare_digest(tenant.api_key_hash, presented_hash):
-                set_current_tenant_id(tenant.id)
-                return tenant
+        if len(parts) >= 2:
+            tenant_id = parts[1]
+            
+            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            if tenant:
+                # Reconstruct the expected plaintext prefix matching the db entry API key format
+                # and verify the HMAC signature / hash
+                presented_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                if tenant.api_key_hash and hmac.compare_digest(tenant.api_key_hash, presented_hash):
+                    set_current_tenant_id(tenant.id)
+                    return tenant
 
     raise HTTPException(status_code=401, detail="Invalid authorization token")
 

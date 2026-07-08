@@ -107,6 +107,6 @@ def test_webhook_mandatory_secret(monkeypatch):
         del sys.modules["self_governance.github_app"]
         
     with pytest.raises(ValueError, match="WEBHOOK_SECRET environment variable is required"):
-        pass
+        import self_governance.github_app  # noqa: F401
 
 
