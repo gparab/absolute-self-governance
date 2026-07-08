@@ -80,6 +80,10 @@ class ContinuousNudger:
         self.has_transient_error = False
         self._stop_event = threading.Event()
 
+    def stop(self) -> None:
+        """Stop the handoff monitoring loop."""
+        self._stop_event.set()
+
     def process_handoff(self) -> None:
         """
         Process the handoff file if it exists and has modified content.
@@ -204,6 +208,7 @@ class ContinuousNudger:
         self.process_handoff()
 
         observer = Observer()
+        observer.daemon = True
         handler = HandoffHandler(self)
         observer.schedule(handler, path=self.working_directory, recursive=False)
         observer.start()

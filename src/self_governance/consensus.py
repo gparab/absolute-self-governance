@@ -118,14 +118,13 @@ def run_consensus(
             ASG_CONSENSUS_ITERATIONS.inc()
             scores = {}
             new_justifications = {}
+            peer_feedback = ""
+            if justifications:
+                peer_feedback = "Here is the peer feedback from the previous round of deliberation:\n" + "\n".join(
+                    f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
+                    for a, info in justifications.items()
+                ) + "\n\n"
             for agent in initial_roster:
-                peer_feedback = ""
-                if justifications:
-                    peer_feedback = "Here is the peer feedback from the previous round of deliberation:\n" + "\n".join(
-                        f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
-                        for a, info in justifications.items()
-                    ) + "\n\n"
-
                 from self_governance.agency_agents_adapter import get_persona, get_capability_prompt
                 persona = get_persona(agent)
                 
