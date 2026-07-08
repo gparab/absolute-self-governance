@@ -1,11 +1,12 @@
 import bisect
 import math
 from typing import List, Union, Iterator
+from collections.abc import Sequence
 from self_governance.models import Agent, SwarmConfig
 
-class LazyList(list):
+class LazyList(Sequence):
     """
-    A memory-efficient list implementation that dynamically instantiates
+    A memory-efficient, immutable sequence implementation that dynamically instantiates
     Agent objects on-demand rather than keeping them in memory.
     """
     def __init__(self, prefix_sums: List[int], total_count: int) -> None:
@@ -16,7 +17,6 @@ class LazyList(list):
             prefix_sums: Cumulative sums of agent counts per role to allow binary search.
             total_count: Total number of agents in the list.
         """
-        super().__init__()
         self._prefix_sums = prefix_sums
         self._total_count = total_count
 

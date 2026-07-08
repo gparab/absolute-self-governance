@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import List, Dict, Any, Iterator, Tuple
 
 @dataclass
@@ -10,85 +10,51 @@ class Agent:
     prompt: str
 
     def __getitem__(self, key: str) -> Any:
-        if key == "role":
-            if not hasattr(self, "role"):
-                raise KeyError("role")
-            return self.role
-        elif key == "prompt":
-            if not hasattr(self, "prompt"):
-                raise KeyError("prompt")
-            return self.prompt
+        if key in ("role", "prompt"):
+            return getattr(self, key)
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        if key == "role":
-            self.role = value
-        elif key == "prompt":
-            self.prompt = value
+        if key in ("role", "prompt"):
+            setattr(self, key, value)
         else:
             raise KeyError(key)
 
     def __delitem__(self, key: str) -> None:
         if key in ("role", "prompt"):
-            if hasattr(self, key):
-                delattr(self, key)
-        else:
-            raise KeyError(key)
-
-    def __getattr__(self, name: str) -> Any:
-        if name in ("role", "prompt"):
-            raise KeyError(name)
-        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+            raise TypeError(f"Cannot delete core attribute '{key}' from Agent.")
+        raise KeyError(key)
 
     def __contains__(self, key: str) -> bool:
-        return key in ("role", "prompt") and hasattr(self, key)
+        return key in ("role", "prompt")
 
     def keys(self) -> List[str]:
-        keys_list = []
-        if hasattr(self, "role"):
-            keys_list.append("role")
-        if hasattr(self, "prompt"):
-            keys_list.append("prompt")
-        return keys_list
+        return ["role", "prompt"]
 
     def values(self) -> List[Any]:
-        vals = []
-        if hasattr(self, "role"):
-            vals.append(self.role)
-        if hasattr(self, "prompt"):
-            vals.append(self.prompt)
-        return vals
+        return [self.role, self.prompt]
 
     def items(self) -> List[Tuple[str, Any]]:
-        items_list = []
-        if hasattr(self, "role"):
-            items_list.append(("role", self.role))
-        if hasattr(self, "prompt"):
-            items_list.append(("prompt", self.prompt))
-        return items_list
+        return [("role", self.role), ("prompt", self.prompt)]
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.keys())
 
     def __len__(self) -> int:
-        return len(self.keys())
+        return 2
 
     def dict(self) -> Dict[str, Any]:
         """
         Serialize Agent to a dictionary.
         """
-        d = {}
-        if hasattr(self, "role"):
-            d["role"] = self.role
-        if hasattr(self, "prompt"):
-            d["prompt"] = self.prompt
-        return d
+        return asdict(self)
 
     def model_dump(self) -> Dict[str, Any]:
         """
         Serialize Agent to a dictionary (alias for dict()).
         """
         return self.dict()
+
 
 
 @dataclass

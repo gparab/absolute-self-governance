@@ -7,11 +7,12 @@ def test_dimensioning_basic():
     transition_matrix = [[1.0, 0.0], [0.0, 1.0]]
     
     config = dimension_swarm(requirement_vector, transition_matrix)
+    from collections.abc import Sequence
     assert isinstance(config, SwarmConfig)
     
     swarm = config.swarm
     assert isinstance(swarm, LazyList)
-    assert isinstance(swarm, list)
+    assert isinstance(swarm, Sequence)
     assert len(swarm) == 5
 
 def test_lazy_list_indexing():
@@ -182,32 +183,33 @@ def test_lazy_list_advanced_slicing():
 
 
 # ==========================================
-# Vulnerability Demos: Mutations & NaN/Inf
+# Fixed: Security & Immutability Protections
 # ==========================================
 
-def test_lazy_list_mutation_vulnerability():
-    """Demonstrate how mutations are silently ignored or inconsistent in LazyList."""
+def test_lazy_list_immutability():
+    """Verify that LazyList cannot be mutated."""
     prefix_sums = [2, 5]
     total_count = 5
     lazy_list = LazyList(prefix_sums, total_count)
     
-    # Try modifying an element in place (which raises IndexError because of empty base list)
-    with pytest.raises(IndexError):
+    # Try modifying an element in place
+    with pytest.raises(TypeError, match="does not support item assignment"):
         lazy_list[0] = Agent("mutated_role", "mutated_prompt")
     
-    # Appending doesn't adjust _total_count
-    lazy_list.append(Agent("extra", "extra"))
-    assert len(lazy_list) == 5  # Length is still 5
-    with pytest.raises(IndexError):
-        _ = lazy_list[5]        # Can't access the appended item
+    # Try appending (Sequence lacks the append attribute)
+    with pytest.raises(AttributeError, match="has no attribute 'append'"):
+        lazy_list.append(Agent("extra", "extra"))
 
-def test_agent_deletion_vulnerability():
-    """Demonstrate how dictionary deletions crash property getters."""
+def test_agent_deletion_protection():
+    """Verify that core Agent attributes cannot be deleted."""
     agent = Agent("role_0", "prompt_0")
-    del agent["role"]
     
-    with pytest.raises(KeyError):
-        _ = agent.role
+    with pytest.raises(TypeError, match="Cannot delete core attribute"):
+        del agent["role"]
+        
+    # Ensure the attribute still exists and hasn't crashed
+    assert agent.role == "role_0"
+
 
 def test_dimensioning_float_edge_cases():
     """Verify behavior of NaN and Infinity in requirements / matrix."""

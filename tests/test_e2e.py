@@ -24,7 +24,8 @@ def test_dimensioning_nominal():
     else:
         swarm = config["swarm"]
         
-    assert isinstance(swarm, list)
+    from collections.abc import Sequence
+    assert isinstance(swarm, Sequence)
     assert len(swarm) in (4, 5)  # round([2.0, 2.5]) = [2, 2] or [2, 3]
     
     for agent in swarm:
@@ -112,7 +113,8 @@ def test_dimensioning_zero_requirements():
     else:
         swarm = config["swarm"]
         
-    assert isinstance(swarm, list)
+    from collections.abc import Sequence
+    assert isinstance(swarm, Sequence)
     assert len(swarm) == 0
 
 
@@ -308,7 +310,8 @@ def test_dimensioning_negative_requirements():
     else:
         swarm = config["swarm"]
         
-    assert isinstance(swarm, list)
+    from collections.abc import Sequence
+    assert isinstance(swarm, Sequence)
     # Check that negative requirements clamp to 0.0, resulting in size <= 1
     assert len(swarm) <= 1
 
@@ -643,7 +646,8 @@ def test_workload_complex_dimensioning():
     else:
         swarm = config["swarm"]
         
-    assert isinstance(swarm, list)
+    from collections.abc import Sequence
+    assert isinstance(swarm, Sequence)
     for agent in swarm:
         role = agent.role if hasattr(agent, "role") else agent["role"]
         prompt = agent.prompt if hasattr(agent, "prompt") else agent["prompt"]
