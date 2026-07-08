@@ -19,5 +19,26 @@
     "description": "Write a function 'safe_divide(a: float, b: float) -> Optional[float]' in division.py that returns the division result or None if division by zero is attempted.",
     "test_code": "def test_division():\n    from division import safe_divide\n    assert safe_divide(10, 2) == 5.0\n    assert safe_divide(5, 0) is None\n",
     "target_file": "division.py"
+  },
+  {
+    "id": "task_reverse",
+    "name": "String Reversal",
+    "description": "Write a function 'reverse_string(s: str) -> str' in reverse.py that reverses the input string.",
+    "test_code": "def test_reverse():\n    from reverse import reverse_string\n    assert reverse_string('hello') == 'olleh'\n    assert reverse_string('') == ''\n",
+    "target_file": "reverse.py"
+  },
+  {
+    "id": "task_twosum",
+    "name": "Two Sum Problem",
+    "description": "Write a function 'two_sum(nums: List[int], target: int) -> List[int]' in twosum.py that returns indices of the two numbers such that they add up to target.",
+    "test_code": "def test_twosum():\n    from twosum import two_sum\n    assert two_sum([2, 7, 11, 15], 9) == [0, 1]\n    assert two_sum([3, 2, 4], 6) == [1, 2]\n",
+    "target_file": "twosum.py"
+  },
+  {
+    "id": "task_json",
+    "name": "JSON Validator",
+    "description": "Write a function 'validate_json(s: str) -> bool' in json_val.py that returns True if the string is a valid JSON object or array, and False otherwise.",
+    "test_code": "def test_json():\n    from json_val import validate_json\n    assert validate_json('{\"key\": \"value\"}') is True\n    assert validate_json('invalid json') is False\n",
+    "target_file": "json_val.py"
   }
 ]

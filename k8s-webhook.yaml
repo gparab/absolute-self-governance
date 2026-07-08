@@ -42,10 +42,28 @@ spec:
           requests:
             cpu: 200m
             memory: 256Mi
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: db-data
+          mountPath: /app/data
         securityContext:
           runAsNonRoot: true
           runAsUser: 10001
-          readOnlyRootFilesystem: false
+          readOnlyRootFilesystem: true
+      volumes:
+      - name: db-data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -59,3 +77,22 @@ spec:
       port: 80
       targetPort: 8000
   type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: self-governance-webhook-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: self-governance-webhook
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
