@@ -51,6 +51,13 @@ class TokenUsage(Base):
 
     tenant = relationship("Tenant", back_populates="token_usages")
 
+class RateLimitEntry(Base):
+    __tablename__ = "rate_limit_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_id = Column(String, nullable=False, index=True)
+    timestamp = Column(Float, nullable=False, index=True)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 

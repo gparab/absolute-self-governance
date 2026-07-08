@@ -137,16 +137,24 @@ def test_create_tenant_endpoint():
     assert f"Tenant Context: {tenant_id}" in response_dash.text
 
 def test_rate_limiting_enforcement():
-    from self_governance.auth import rate_limit_cache
-    rate_limit_cache.clear()
+    from self_governance.db import SessionLocal, RateLimitEntry
+    db = SessionLocal()
+    db.query(RateLimitEntry).filter(RateLimitEntry.tenant_id == "tenantA").delete()
     
-    client = TestClient(app)
     import time
     now = time.time()
-    rate_limit_cache["tenantA"] = [now] * 100
+    for _ in range(100):
+        entry = RateLimitEntry(tenant_id="tenantA", timestamp=now)
+        db.add(entry)
+    db.commit()
+    db.close()
     
+    client = TestClient(app)
     response = client.get("/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"})
     assert response.status_code == 429
     assert "Rate limit exceeded" in response.json()["detail"]
     
-    rate_limit_cache.clear()
+    db = SessionLocal()
+    db.query(RateLimitEntry).filter(RateLimitEntry.tenant_id == "tenantA").delete()
+    db.commit()
+    db.close()

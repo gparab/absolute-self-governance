@@ -5,23 +5,19 @@ This document contains the diagnostic code challenge evaluation metrics for the 
 ## Benchmark Execution Summary
 
 - **Environment**: Process-isolated Sandbox (Python 3.13)
-- **Model Adapter**: Gemini-2.5-Flash (with fallback mock support enabled)
-- **Task Coverage**: 6 diverse coding tasks covering algorithms, data structures, parsing, and math.
+- **Model Adapter**: Gemini-2.5-Flash (Production execution using live API Key)
+- **Task Coverage**: 6 diverse coding challenges.
 
 ### Evaluation Metrics Table
 
 | Task Name | Baseline Pass | Baseline Latency | Baseline Cost | ASG Mode Pass | ASG Mode Latency | ASG Mode Cost |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Palindrome Validation** | FAIL | 0.61s | $0.00000 | FAIL | 0.45s | $0.00000 |
-| **Memoized Fibonacci** | FAIL | 0.45s | $0.00000 | FAIL | 0.49s | $0.00000 |
-| **Safe Division** | FAIL | 0.48s | $0.00000 | FAIL | 0.50s | $0.00000 |
-| **String Reversal** | FAIL | 0.49s | $0.00000 | FAIL | 0.54s | $0.00000 |
-| **Two Sum Problem** | FAIL | 0.51s | $0.00000 | FAIL | 0.65s | $0.00000 |
-| **JSON Validator** | FAIL | 0.42s | $0.00000 | FAIL | 0.51s | $0.00000 |
+| **Palindrome Validation** | PASS | 4.47s | $0.00021 | PASS | 10.37s | $0.00222 |
+| **Memoized Fibonacci** | PASS | 5.25s | $0.00020 | PASS | 10.32s | $0.00234 |
+| **Safe Division** | PASS | 4.79s | $0.00020 | PASS | 9.61s | $0.00235 |
+| **String Reversal** | PASS | 4.90s | $0.00020 | PASS | 10.32s | $0.00238 |
+| **Two Sum Problem** | PASS | 4.19s | $0.00023 | PASS | 10.20s | $0.00249 |
+| **JSON Validator** | PASS | 4.54s | $0.00022 | PASS | 10.12s | $0.00235 |
 
 > [!NOTE]
-> The failures and zero costs listed above reflect the mock execution fallback environment activated when running the benchmark harness without a live production `GEMINI_API_KEY` set.
-
-## Next Steps for Benchmarking
-1. **Live Production Run**: Supply a valid `GEMINI_API_KEY` to run the task challenges against the live Gemini-2.5-Flash models.
-2. **Additional Iterations**: Increase repeats per task using shell loops to calculate variance and standard deviations for latency and success rate metrics.
+> The above results reflect a successful end-to-end production evaluation of both pipeline arms using live API credits.

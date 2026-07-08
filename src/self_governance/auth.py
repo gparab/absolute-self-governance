@@ -5,7 +5,7 @@ import os
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from self_governance.db import get_db, Tenant
+from self_governance.db import get_db, Tenant, RateLimitEntry
 
 tenant_id_var = contextvars.ContextVar("tenant_id", default="")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
@@ -54,27 +54,35 @@ async def authenticate_tenant(
     raise HTTPException(status_code=401, detail="Invalid authorization token")
 
 import time
-from collections import defaultdict
 
-# Simple in-memory rate limiter cache: {tenant_id: [timestamps]}
-rate_limit_cache = defaultdict(list)
 RATE_LIMIT_MAX_REQUESTS = 100  # allow up to 100 requests per minute by default
 RATE_LIMIT_WINDOW = 60.0       # 60 seconds
 
-def rate_limit_tenant(tenant: Tenant = Depends(authenticate_tenant)) -> Tenant:
-    """Enforces per-tenant rate limiting."""
+def rate_limit_tenant(
+    tenant: Tenant = Depends(authenticate_tenant),
+    db: Session = Depends(get_db)
+) -> Tenant:
+    """Enforces per-tenant rate limiting using database persistence."""
     now = time.time()
-    timestamps = rate_limit_cache[tenant.id]
+    window_start = now - RATE_LIMIT_WINDOW
     
-    # filter out timestamps older than the window
-    active_timestamps = [ts for ts in timestamps if now - ts < RATE_LIMIT_WINDOW]
+    # Delete old entries to keep DB clean
+    db.query(RateLimitEntry).filter(RateLimitEntry.timestamp < window_start).delete()
     
-    if len(active_timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+    # Count current active entries for this tenant
+    count = db.query(RateLimitEntry).filter(
+        RateLimitEntry.tenant_id == tenant.id,
+        RateLimitEntry.timestamp >= window_start
+    ).count()
+    
+    if count >= RATE_LIMIT_MAX_REQUESTS:
+        db.commit()
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Maximum 100 requests per minute allowed."
         )
         
-    active_timestamps.append(now)
-    rate_limit_cache[tenant.id] = active_timestamps
+    entry = RateLimitEntry(tenant_id=tenant.id, timestamp=now)
+    db.add(entry)
+    db.commit()
     return tenant
