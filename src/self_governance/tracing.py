@@ -1,11 +1,10 @@
 import logging
+import os
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
 logger = logging.getLogger("self_governance.tracing")
-
-import os
 
 # Initialize OpenTelemetry Tracer
 provider = TracerProvider()

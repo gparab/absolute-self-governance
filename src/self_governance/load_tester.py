@@ -34,7 +34,7 @@ async def run_load_test(url: str, headers: dict, concurrent_requests: int = 10, 
         total_duration = time.time() - start_time
         
         # Filter successful requests (latency > 0)
-        valid_latencies = [l for l in latencies if l > 0.0]
+        valid_latencies = [lat for lat in latencies if lat > 0.0]
         failures = latencies.count(-1.0)
         
         print("\n--- Load Test Results ---")

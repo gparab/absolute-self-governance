@@ -2,7 +2,8 @@ import contextvars
 import hmac
 import hashlib
 import os
-from fastapi import Request, HTTPException, Depends
+import time
+from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from self_governance.db import get_db, Tenant, RateLimitEntry
@@ -25,35 +26,35 @@ async def authenticate_tenant(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> Tenant:
-    """Authenticate incoming HTTP request against Tenant API keys/tokens."""
+    """Authenticates API keys (OAuth2 Bearer token) and sets tenant context."""
     if not token:
         if ALLOW_GUEST_ACCESS:
+            set_current_tenant_id("guest")
             guest_tenant = db.query(Tenant).filter(Tenant.id == "guest").first()
             if not guest_tenant:
-                guest_tenant = Tenant(id="guest", name="Guest Tenant", api_key_hash=hash_key("guest"))
+                guest_tenant = Tenant(id="guest", api_key_hash="")
                 db.add(guest_tenant)
                 db.commit()
                 db.refresh(guest_tenant)
-            set_current_tenant_id("guest")
             return guest_tenant
-        else:
-            raise HTTPException(status_code=401, detail="Authentication token required")
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
-    # Verify the presented token by hashing it and comparing against stored hash
-    if token.startswith("tenant_"):
+    # The token is the plaintext API key (e.g. tenant_t123_secret)
+    # Check if we can extract a tenant ID prefix
+    if "_" in token:
         parts = token.split("_")
-        if len(parts) >= 2:
-            tenant_id = parts[1]
-            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-            if tenant:
-                presented_hash = hash_key(token)
-                if hmac.compare_digest(tenant.api_key_hash, presented_hash):
-                    set_current_tenant_id(tenant.id)
-                    return tenant
+        tenant_id = parts[0]
+        
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant:
+            # Reconstruct the expected plaintext prefix matching the db entry API key format
+            # and verify the HMAC signature / hash
+            presented_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            if hmac.compare_digest(tenant.api_key_hash, presented_hash):
+                set_current_tenant_id(tenant.id)
+                return tenant
 
     raise HTTPException(status_code=401, detail="Invalid authorization token")
-
-import time
 
 RATE_LIMIT_MAX_REQUESTS = 100  # allow up to 100 requests per minute by default
 RATE_LIMIT_WINDOW = 60.0       # 60 seconds

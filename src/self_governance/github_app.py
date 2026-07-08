@@ -2,6 +2,8 @@ import os
 import hmac
 import hashlib
 import logging
+import secrets
+from pydantic import BaseModel
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import Response, HTMLResponse
 from sqlalchemy.orm import Session
@@ -13,7 +15,7 @@ from self_governance.dimensioning import dimension_swarm
 from self_governance.telemetry import new_correlation_id, get_correlation_id
 from self_governance.metrics import ASG_WEBHOOK_EVENTS
 from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage
-from self_governance.auth import authenticate_tenant, rate_limit_tenant, hash_key
+from self_governance.auth import rate_limit_tenant, hash_key
 from self_governance.billing import record_usage
 from self_governance.tracing import tracer
 
@@ -76,8 +78,6 @@ def get_dashboard(
     
     return HTMLResponse(content=html)
 
-from pydantic import BaseModel
-import secrets
 
 class TenantCreateRequest(BaseModel):
     name: str
