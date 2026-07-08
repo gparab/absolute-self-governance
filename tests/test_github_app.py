@@ -66,3 +66,34 @@ def test_webhook_pr_closed_merged():
     state = get_learning_state()
     assert state["vulnerability_counts"] == 1
     assert state["average_cycle_time"] == 25.0
+
+def test_webhook_hmac_verification(monkeypatch):
+    import hmac
+    import hashlib
+    
+    # Configure webhook secret environment
+    monkeypatch.setenv("WEBHOOK_SECRET", "super_secret_token")
+    
+    # Send request without signature
+    response = client.post("/webhook", json={}, headers={"X-GitHub-Event": "ping"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing X-Hub-Signature-256 header"
+
+    # Send request with invalid signature
+    response = client.post("/webhook", json={}, headers={
+        "X-GitHub-Event": "ping",
+        "X-Hub-Signature-256": "sha256=invalid_hash"
+    })
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid signature"
+
+    # Send request with valid signature
+    body_data = b"{}"
+    expected_hash = hmac.new(b"super_secret_token", body_data, hashlib.sha256).hexdigest()
+    response = client.post("/webhook", content=body_data, headers={
+        "X-GitHub-Event": "ping",
+        "X-Hub-Signature-256": f"sha256={expected_hash}"
+    })
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "msg": "pong"}
+

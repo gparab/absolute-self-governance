@@ -26,7 +26,7 @@ def test_dimensioning_nominal():
         
     from collections.abc import Sequence
     assert isinstance(swarm, Sequence)
-    assert len(swarm) in (4, 5)  # round([2.0, 2.5]) = [2, 2] or [2, 3]
+    assert len(swarm) == 9  # scaled by Shannon Entropy
     
     for agent in swarm:
         role = agent.role if hasattr(agent, "role") else agent["role"]
@@ -47,12 +47,12 @@ def test_dimensioning_identity_matrix():
     else:
         swarm = config["swarm"]
         
-    assert len(swarm) == 5
+    assert len(swarm) == 10
     roles = [agent.role if hasattr(agent, "role") else agent["role"] for agent in swarm]
     role_counts = {}
     for r in roles:
         role_counts[r] = role_counts.get(r, 0) + 1
-    assert sorted(role_counts.values()) == [2, 3]
+    assert sorted(role_counts.values()) == [4, 6]
 
 
 def test_dimensioning_role_mapping():
@@ -555,7 +555,14 @@ def test_cross_feature_consensus_feeds_dimensioning():
     role_counts = {}
     for r in roles:
         role_counts[r] = role_counts.get(r, 0) + 1
-    assert sorted(role_counts.values()) in ([1, n], [n])
+    import math
+    tot = float(n + 1)
+    p0 = n / tot
+    p1 = 1.0 / tot
+    h = -(p0 * math.log2(p0) + p1 * math.log2(p1))
+    expected_r0 = round(float(n) * (1.0 + h))
+    expected_r1 = round(1.0 * (1.0 + h))
+    assert sorted(role_counts.values()) == sorted([expected_r0, expected_r1])
 
 
 def test_cross_feature_full_cycle(tmp_path):

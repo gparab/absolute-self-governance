@@ -13,9 +13,9 @@ def test_cli_dimension(capsys):
     output_json = json.loads(captured.out)
     
     assert "swarm" in output_json
-    assert len(output_json["swarm"]) == 5
+    assert len(output_json["swarm"]) == 10
     assert output_json["swarm"][0]["role"] == "role_0"
-    assert output_json["swarm"][2]["role"] == "role_1"
+    assert output_json["swarm"][4]["role"] == "role_1"
 
 def test_cli_trigger_succession(tmp_path):
     handoff_file = tmp_path / "handoff.md"

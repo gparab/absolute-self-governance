@@ -1,3 +1,4 @@
+import os
 import random
 import math
 from typing import List, Optional
@@ -95,17 +96,28 @@ def run_consensus(
     tau = float(target_tau)
     iteration = 1
 
+    api_key = os.getenv("GEMINI_API_KEY")
+
     while True:
         scores = {}
         for agent in initial_roster:
-            if iteration <= B:
-                # High score to allow immediate agreement if target_tau is low
-                score = 8.0 + rng.uniform(-0.1, 0.1)
+            if api_key:
+                from self_governance.gemini_adapter import call_gemini
+                prompt = f"Rate the suitability of the agent role '{agent}' for software engineering tasks on a scale from 1.0 to 10.0. Return only a floating point number."
+                res = call_gemini(prompt, api_key)
+                try:
+                    score = float(res)
+                except Exception:
+                    score = 7.5
             else:
-                # Score stays above 7.0, with a positive thermal escape helper
-                # that scales with temperature (capped at 0.1 to prevent overflow)
-                escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
-                score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
+                if iteration <= B:
+                    # High score to allow immediate agreement if target_tau is low
+                    score = 8.0 + rng.uniform(-0.1, 0.1)
+                else:
+                    # Score stays above 7.0, with a positive thermal escape helper
+                    # that scales with temperature (capped at 0.1 to prevent overflow)
+                    escape_term = abs(rng.uniform(-0.01, 0.01) * temp)
+                    score = 7.0 + rng.uniform(0.01, 0.09) + min(0.1, escape_term)
             scores[agent] = score
         
         avg_score = sum(scores.values()) / len(initial_roster)

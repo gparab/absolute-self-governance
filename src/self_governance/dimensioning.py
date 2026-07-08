@@ -107,11 +107,20 @@ def dimension_swarm(requirement_vector: List[float], transition_matrix: List[Lis
             if not math.isfinite(val):
                 raise ValueError("transition_matrix elements must be finite")
 
-    # 2. Compute subagent counts
+    # 2. Compute Shannon Entropy of requirement_vector
+    total_req = sum(val for val in requirement_vector if val > 0.0)
+    entropy = 0.0
+    if total_req > 0.0:
+        for val in requirement_vector:
+            if val > 0.0:
+                p = val / total_req
+                entropy -= p * math.log2(p)
+
+    # 3. Compute subagent counts with entropy scaling factor (1 + H(R_t))
     counts = []
     for row in transition_matrix:
         dot_product = sum(w * r for w, r in zip(row, requirement_vector))
-        count = max(0.0, dot_product)
+        count = max(0.0, dot_product) * (1.0 + entropy)
         counts.append(round(count))
 
     # 3. Compute prefix sums for LazyList

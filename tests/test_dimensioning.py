@@ -13,7 +13,7 @@ def test_dimensioning_basic():
     swarm = config.swarm
     assert isinstance(swarm, LazyList)
     assert isinstance(swarm, Sequence)
-    assert len(swarm) == 5
+    assert len(swarm) == 10
 
 def test_lazy_list_indexing():
     prefix_sums = [2, 5]
@@ -234,4 +234,12 @@ def test_agent_capabilities():
     # Serialization check
     d = agent.dict()
     assert d["capabilities"] == ["testing"]
+
+def test_shannon_entropy():
+    """Verify that Shannon Entropy scales counts correctly."""
+    # [1.0, 1.0] has entropy of 1.0 (scaling factor of 2.0)
+    # Transition matrix is [[1.0, 0.0]], dot product is 1.0. With entropy scaling, result is 2.0.
+    config = dimension_swarm([1.0, 1.0], [[1.0, 0.0]])
+    assert len(config.swarm) == 2
+
 
