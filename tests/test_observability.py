@@ -1,0 +1,82 @@
+import os
+import json
+import logging
+from fastapi.testclient import TestClient
+from self_governance.telemetry import (
+    setup_telemetry,
+    new_correlation_id,
+    get_correlation_id,
+    set_correlation_id,
+    StructuredJSONFormatter
+)
+from self_governance.github_app import app
+from self_governance.metrics import ASG_WEBHOOK_EVENTS
+
+def test_correlation_id_context():
+    cid = new_correlation_id()
+    assert len(cid) > 0
+    assert get_correlation_id() == cid
+    
+    set_correlation_id("test-id-123")
+    assert get_correlation_id() == "test-id-123"
+
+def test_structured_json_formatter():
+    formatter = StructuredJSONFormatter()
+    set_correlation_id("json-test-id")
+    
+    # Create a dummy LogRecord
+    record = logging.LogRecord(
+        name="test_logger",
+        level=logging.INFO,
+        pathname="test_file.py",
+        lineno=10,
+        msg="Structured message",
+        args=(),
+        exc_info=None
+    )
+    
+    formatted = formatter.format(record)
+    log_data = json.loads(formatted)
+    
+    assert log_data["level"] == "INFO"
+    assert log_data["logger"] == "test_logger"
+    assert log_data["message"] == "Structured message"
+    assert log_data["correlation_id"] == "json-test-id"
+    assert "timestamp" in log_data
+
+def test_metrics_endpoint():
+    client = TestClient(app)
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "asg_webhook_events_total" in response.text
+
+def test_webhook_event_increments_metric(monkeypatch):
+    # Mock signature verification
+    async def mock_verify(req):
+        return None
+    monkeypatch.setattr("self_governance.github_app.verify_signature", mock_verify)
+    
+    client = TestClient(app)
+    
+    # Before request
+    before_text = client.get("/metrics").text
+    
+    # Post issue payload
+    payload = {
+        "action": "opened",
+        "issue": {
+            "title": "Fix bug in database connection",
+            "body": "Connection hangs indefinitely under load"
+        }
+    }
+    
+    response = client.post(
+        "/webhook",
+        json=payload,
+        headers={"X-GitHub-Event": "issues"}
+    )
+    assert response.status_code == 200
+    
+    # Check metric is incremented
+    after_text = client.get("/metrics").text
+    assert "asg_webhook_events_total{event_type=\"issues\"}" in after_text

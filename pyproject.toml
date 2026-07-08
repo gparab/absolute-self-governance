@@ -15,6 +15,7 @@ dependencies = [
     "watchdog",
     "fastapi",
     "uvicorn",
+    "prometheus-client",
 ]
 
 [tool.setuptools.packages.find]

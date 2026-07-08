@@ -3,7 +3,6 @@ import json
 import time
 import logging
 from typing import List, Dict, Any
-from self_governance.execution import dispatch_swarm_execution
 from self_governance.models import Agent
 
 logger = logging.getLogger("self_governance.benchmark")
@@ -40,6 +39,7 @@ def run_benchmark(api_key: str = None) -> Dict[str, Any]:
 def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     """Simulates a baseline run with direct, single-step generation."""
     from self_governance.gemini_adapter import GeminiExecutionAdapter
+    from self_governance.metrics import ASG_PIPELINE_LATENCY
     
     start_time = time.time()
     adapter = GeminiExecutionAdapter(api_key=api_key)
@@ -47,7 +47,8 @@ def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     plan = {"task": task["description"]}
     
     # Direct code execution
-    exec_res = adapter.execute_development([], plan)
+    with ASG_PIPELINE_LATENCY.labels(phase="baseline").time():
+        exec_res = adapter.execute_development([], plan)
     written_files = exec_res.get("written_files", [])
     
     # Create test file on disk
@@ -85,28 +86,30 @@ def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     from self_governance.consensus import run_consensus
     from self_governance.dimensioning import dimension_swarm
     from self_governance.gemini_adapter import GeminiExecutionAdapter
+    from self_governance.metrics import ASG_PIPELINE_LATENCY
     
     start_time = time.time()
     
-    # Deliberate candidate selection
-    consensus_res = run_consensus(
-        initial_roster=["agent_dev", "agent_tester", "agent_security"],
-        initial_temp=1.0,
-        target_tau=8.0
-    )
-    
-    # Dynamic swarm sizing using Shannon entropy sizing rules
-    req_vector = [0.8, 0.5, 0.7, 0.4]
-    matrix = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
-    swarm_spec = dimension_swarm(req_vector, matrix)
-    
-    # Convert consensus results into Agent schemas
-    agents = [Agent(role=r, prompt=f"Guide: {r}", capabilities=[]) for r in consensus_res.approved_roster]
-    
-    # Execute through hardened adapter
-    adapter = GeminiExecutionAdapter(api_key=api_key)
-    plan = {"task": task["description"]}
-    exec_res = adapter.execute_development(agents, plan)
+    with ASG_PIPELINE_LATENCY.labels(phase="asg").time():
+        # Deliberate candidate selection
+        consensus_res = run_consensus(
+            initial_roster=["agent_dev", "agent_tester", "agent_security"],
+            initial_temp=1.0,
+            target_tau=8.0
+        )
+        
+        # Dynamic swarm sizing using Shannon entropy sizing rules
+        req_vector = [0.8, 0.5, 0.7, 0.4]
+        matrix = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+        _ = dimension_swarm(req_vector, matrix)
+        
+        # Convert consensus results into Agent schemas
+        agents = [Agent(role=r, prompt=f"Guide: {r}", capabilities=[]) for r in consensus_res.approved_roster]
+        
+        # Execute through hardened adapter
+        adapter = GeminiExecutionAdapter(api_key=api_key)
+        plan = {"task": task["description"]}
+        exec_res = adapter.execute_development(agents, plan)
     written_files = exec_res.get("written_files", [])
     
     # Create test file on disk

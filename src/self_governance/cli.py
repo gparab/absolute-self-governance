@@ -9,6 +9,7 @@ from self_governance.dashboard import display_dashboard
 def main():
     parser = argparse.ArgumentParser(description="Absolute Self-Governance CLI")
     parser.add_argument("--config", help="Path to config YAML file")
+    parser.add_argument("--json-logs", action="store_true", help="Format output logs in structured JSON")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # run-nudger subcommand
@@ -26,12 +27,16 @@ def main():
     parser_dim.add_argument("-m", "--matrix", required=True, help="Matrix as a JSON string")
 
     # stats subcommand
-    parser_stats = subparsers.add_parser("stats", help="Show the metrics dashboard")
+    subparsers.add_parser("stats", help="Show the metrics dashboard")
 
     # benchmark subcommand
-    parser_bench = subparsers.add_parser("benchmark", help="Run the diagnostic comparison benchmark suite")
+    subparsers.add_parser("benchmark", help="Run the diagnostic comparison benchmark suite")
 
     args = parser.parse_args()
+    from self_governance.telemetry import setup_telemetry, new_correlation_id
+    setup_telemetry(json_logging=args.json_logs)
+    new_correlation_id()
+
     config = OrchestratorConfig(args.config)
 
     if args.subcommand == "run-nudger":

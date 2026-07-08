@@ -99,7 +99,10 @@ def run_consensus(
 
     api_key = os.getenv("GEMINI_API_KEY")
 
+    from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
+
     while True:
+        ASG_CONSENSUS_ITERATIONS.inc()
         scores = {}
         for agent in initial_roster:
             if api_key:

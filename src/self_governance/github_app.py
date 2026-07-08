@@ -3,13 +3,28 @@ import hmac
 import hashlib
 import logging
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from self_governance.nudger import ContinuousNudger
 from self_governance.config import OrchestratorConfig
 from self_governance.learning import track_learning_feedback
 from self_governance.dimensioning import dimension_swarm
+from self_governance.telemetry import new_correlation_id, get_correlation_id
+from self_governance.metrics import ASG_WEBHOOK_EVENTS
 
 logger = logging.getLogger("self_governance.github_app")
 app = FastAPI(title="Self-Governing Software Factory App")
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    _ = request.headers.get("X-Correlation-ID") or new_correlation_id()
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = get_correlation_id()
+    return response
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Load configuration and watcher context
 config = OrchestratorConfig()
@@ -48,6 +63,7 @@ async def github_webhook(request: Request):
         raise HTTPException(status_code=400, detail=f"Malformed JSON: {e}")
 
     event = request.headers.get("X-GitHub-Event", "ping")
+    ASG_WEBHOOK_EVENTS.labels(event_type=event).inc()
 
     if event == "ping":
         return {"status": "ok", "msg": "pong"}

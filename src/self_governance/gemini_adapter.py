@@ -85,8 +85,15 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         if os.getenv("TESTING") == "True":
             return call_gemini(prompt, self.api_key)
         res = call_gemini_with_metadata(prompt, self.api_key)
-        self.prompt_tokens += res.get("prompt_tokens", 0)
-        self.completion_tokens += res.get("completion_tokens", 0)
+        prompt_t = res.get("prompt_tokens", 0)
+        completion_t = res.get("completion_tokens", 0)
+        self.prompt_tokens += prompt_t
+        self.completion_tokens += completion_t
+        
+        cost = (prompt_t * 0.000000075) + (completion_t * 0.00000030)
+        from self_governance.metrics import ASG_SWARM_COST_USD
+        ASG_SWARM_COST_USD.inc(cost)
+        
         return res.get("text", "")
 
     def _run_or_fallback(self, prompt: str, fallback_msg: str) -> Dict[str, Any]:
