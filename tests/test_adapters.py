@@ -179,6 +179,9 @@ def test_gemini_parser_fuzzing(monkeypatch):
     res = adapter.execute_development([], {"task": "Nested fence test"})
     assert res["status"] == "completed"
     assert len(res["written_files"]) == 1
+    with open("test_nested.py", "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "```nested markdown```" in content
     try:
         os.remove("test_nested.py")
     except Exception:

@@ -163,7 +163,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 i += 1 # Skip ``` line
                 
                 content_lines = []
-                while i < len(lines) and not lines[i].strip().startswith("```"):
+                while i < len(lines) and lines[i].strip() != "```":
                     content_lines.append(lines[i])
                     i += 1
                 
