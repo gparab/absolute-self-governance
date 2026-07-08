@@ -39,3 +39,14 @@ def get_persona(role_name: str) -> Dict[str, Any]:
         "description": f"Specialized worker for {role_name}.",
         "prompt": f"You are acting as the specialized role: {role_name}."
     })
+
+CAPABILITY_REGISTRY = {
+    "sqlite_concurrency": "Protect SQLite connections against write lock contentions under concurrent threading; commit transactions quickly.",
+    "hmac_verification": "Verify webhook signatures using timing-attack safe compare_digest.",
+    "path_traversal_hardening": "Strictly reject path traversal payloads (e.g., check for '../' or directory escapes).",
+    "pytest_coverage": "Every new feature or fix must have unit or integration tests targeting 100% coverage."
+}
+
+def get_capability_prompt(capability_name: str) -> str:
+    """Retrieves the prompt chunk for a given capability, or empty string if not found."""
+    return CAPABILITY_REGISTRY.get(capability_name, "")

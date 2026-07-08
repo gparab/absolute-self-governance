@@ -9,16 +9,18 @@ class LazyList(Sequence):
     A memory-efficient, immutable sequence implementation that dynamically instantiates
     Agent objects on-demand rather than keeping them in memory.
     """
-    def __init__(self, prefix_sums: List[int], total_count: int) -> None:
+    def __init__(self, prefix_sums: List[int], total_count: int, capabilities: List[str] = None) -> None:
         """
         Initialize LazyList.
 
         Args:
             prefix_sums: Cumulative sums of agent counts per role to allow binary search.
             total_count: Total number of agents in the list.
+            capabilities: Injected capability names.
         """
         self._prefix_sums = prefix_sums
         self._total_count = total_count
+        self._capabilities = capabilities or []
 
     def __len__(self) -> int:
         """Return the total number of agents."""
@@ -59,9 +61,18 @@ class LazyList(Sequence):
         }
         mapped_role = role_map.get(role_idx, f"role_{role_idx}")
         
-        from self_governance.agency_agents_adapter import get_persona
+        from self_governance.agency_agents_adapter import get_persona, get_capability_prompt
         persona = get_persona(mapped_role)
-        return Agent(role=persona["role"], prompt=persona["prompt"])
+        
+        augmented_prompt = persona["prompt"]
+        if self._capabilities:
+            augmented_prompt += "\n\n### Injected Capabilities / Skills Guidelines:\n"
+            for cap in self._capabilities:
+                prompt_chunk = get_capability_prompt(cap)
+                if prompt_chunk:
+                    augmented_prompt += f"- {prompt_chunk}\n"
+                    
+        return Agent(role=persona["role"], prompt=augmented_prompt, capabilities=self._capabilities)
 
     def __iter__(self) -> Iterator[Agent]:
         """Iterate over all agents in the list."""
@@ -139,6 +150,15 @@ def dimension_swarm(requirement_vector: List[float], transition_matrix: List[Lis
         current_sum += count
         prefix_sums.append(current_sum)
 
-    # 4. Return SwarmConfig wrapping LazyList
-    lazy_swarm = LazyList(prefix_sums, current_sum)
+    # 4. Resolve capabilities from requirement_vector
+    resolved_caps = []
+    if len(requirement_vector) > 0 and requirement_vector[0] > 0.0:
+        resolved_caps.append("sqlite_concurrency")
+    if len(requirement_vector) > 1 and requirement_vector[1] > 0.0:
+        resolved_caps.extend(["hmac_verification", "path_traversal_hardening"])
+    if len(requirement_vector) > 2 and requirement_vector[2] > 0.0:
+        resolved_caps.append("pytest_coverage")
+
+    # 5. Return SwarmConfig wrapping LazyList
+    lazy_swarm = LazyList(prefix_sums, current_sum, capabilities=resolved_caps)
     return SwarmConfig(lazy_swarm)

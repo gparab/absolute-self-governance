@@ -40,7 +40,8 @@ def run_consensus(
     gamma: float = 0.1,
     delta: float = 0.5,
     seed: Optional[int] = None,
-    adapter: Optional[Any] = None
+    adapter: Optional[Any] = None,
+    requirements: Optional[List[float]] = None
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -125,9 +126,27 @@ def run_consensus(
                         for a, info in justifications.items()
                     ) + "\n\n"
 
-                from self_governance.agency_agents_adapter import get_persona
+                from self_governance.agency_agents_adapter import get_persona, get_capability_prompt
                 persona = get_persona(agent)
-                persona_info = f"Agent Persona Guidelines: {persona['prompt']}\nDivision: {persona['division']}\nDescription: {persona['description']}\n"
+                
+                capability_info = ""
+                if requirements:
+                    resolved_caps = []
+                    if len(requirements) > 0 and requirements[0] > 0.0:
+                        resolved_caps.append("sqlite_concurrency")
+                    if len(requirements) > 1 and requirements[1] > 0.0:
+                        resolved_caps.extend(["hmac_verification", "path_traversal_hardening"])
+                    if len(requirements) > 2 and requirements[2] > 0.0:
+                        resolved_caps.append("pytest_coverage")
+                        
+                    if resolved_caps:
+                        capability_info = "Associated Capabilities/Skills Guidelines:\n"
+                        for cap in resolved_caps:
+                            prompt_chunk = get_capability_prompt(cap)
+                            if prompt_chunk:
+                                capability_info += f"- {prompt_chunk}\n"
+                
+                persona_info = f"Agent Persona Guidelines: {persona['prompt']}\nDivision: {persona['division']}\nDescription: {persona['description']}\n{capability_info}"
 
                 if api_key and adapter is not None:
                     prompt = (

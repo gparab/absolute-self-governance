@@ -77,6 +77,14 @@ To handle extremely large scaling workloads (e.g., $S_t$ elements in the million
 2. The prefix sums array $P$ is defined as: $P_k = \sum_{j=0}^{k} c_j$.
 3. When querying index $idx$, binary search determines $role\_idx$ such that $P_{role\_idx - 1} \le idx < P_{role\_idx}$, dynamically mapping the role index to a specialized expert persona from the `agency-agents` registry (e.g., `"Backend Wizard"`, `"QA Specialist"`, or `"Security Auditor"`) to instantiate the `Agent` object on-demand.
 
+#### Dynamic Capability & Skill Injection
+To prevent "role name facades" where agents only differ by name, the system dynamically injects concrete, load-bearing guidelines and operational rules (capabilities) into the instantiated agents based on the values in the feature requirement vector $R_t$:
+* **Index 0 (Persistence/DB)**: Injects `sqlite_concurrency` guidelines (protecting SQLite connections against write lock contention).
+* **Index 1 (Webhooks/API)**: Injects `hmac_verification` and `path_traversal_hardening` guidelines (verifying webhook signatures safely and rejecting directory escapes).
+* **Index 2 (Tests/Verification)**: Injects `pytest_coverage` guidelines (mandating 100% code coverage for features and fixes).
+
+These capability prompts are dynamically appended to the candidate system prompts during both swarm generation and consensus deliberations, ensuring the agents have the precise contextual rules required to fulfill the task securely.
+
 ---
 
 ### Thermal Escape & Threshold Decay (TETD) Consensus
