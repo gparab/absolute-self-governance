@@ -17,7 +17,8 @@ DEFAULT_CONFIG = {
     "watcher": {
         "handoff_file": "handoff.md",
         "prompt_file": "prompt_draft.md",
-        "roster_log_file": "roster_rotation_log.md"
+        "roster_log_file": "roster_rotation_log.md",
+        "dry_run": False
     },
     "dimensioning": {
         "default_matrix": [
@@ -81,6 +82,10 @@ class OrchestratorConfig:
     @property
     def roster_log_file(self) -> str:
         return self.config_data["watcher"]["roster_log_file"]
+
+    @property
+    def dry_run(self) -> bool:
+        return self.config_data["watcher"].get("dry_run", False)
 
     @property
     def default_matrix(self) -> List[List[float]]:

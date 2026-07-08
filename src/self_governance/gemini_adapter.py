@@ -13,7 +13,12 @@ from self_governance.tracing import tracer
 
 logger = logging.getLogger("self_governance.gemini_adapter")
 
-def call_gemini_with_metadata(prompt: str, api_key: str) -> Dict[str, Any]:
+def call_gemini_with_metadata(
+    prompt: str,
+    api_key: str,
+    response_schema: Optional[Dict[str, Any]] = None,
+    response_mime_type: Optional[str] = None
+) -> Dict[str, Any]:
     """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
@@ -22,6 +27,14 @@ def call_gemini_with_metadata(prompt: str, api_key: str) -> Dict[str, Any]:
             "parts": [{"text": prompt}]
         }]
     }
+    
+    if response_mime_type or response_schema:
+        gen_config = {}
+        if response_mime_type:
+            gen_config["responseMimeType"] = response_mime_type
+        if response_schema:
+            gen_config["responseSchema"] = response_schema
+        data["generationConfig"] = gen_config
     
     attempts = 3
     delay = 1.0
@@ -66,9 +79,14 @@ def call_gemini_with_metadata(prompt: str, api_key: str) -> Dict[str, Any]:
                 break
     return {"text": "", "prompt_tokens": 0, "completion_tokens": 0}
 
-def call_gemini(prompt: str, api_key: str) -> str:
+def call_gemini(
+    prompt: str,
+    api_key: str,
+    response_schema: Optional[Dict[str, Any]] = None,
+    response_mime_type: Optional[str] = None
+) -> str:
     """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
-    return call_gemini_with_metadata(prompt, api_key)["text"]
+    return call_gemini_with_metadata(prompt, api_key, response_schema, response_mime_type)["text"]
 
 class GeminiExecutionAdapter(BaseExecutionAdapter):
     """
@@ -81,12 +99,23 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not found in environment. Gemini execution runs will use mock fallbacks.")
 
-    def _call_gemini_and_track(self, prompt: str) -> str:
+    def _call_gemini_and_track(
+        self,
+        prompt: str,
+        response_schema: Optional[Dict[str, Any]] = None,
+        response_mime_type: Optional[str] = None
+    ) -> str:
         """Call Gemini and accumulate token counts for pricing calculations."""
         with tracer.start_as_current_span("gemini_api_call") as span:
             if os.getenv("TESTING") == "True":
-                return call_gemini(prompt, self.api_key)
-            res = call_gemini_with_metadata(prompt, self.api_key)
+                try:
+                    return call_gemini(prompt, self.api_key, response_schema=response_schema, response_mime_type=response_mime_type)
+                except TypeError:
+                    return call_gemini(prompt, self.api_key)
+            try:
+                res = call_gemini_with_metadata(prompt, self.api_key, response_schema=response_schema, response_mime_type=response_mime_type)
+            except TypeError:
+                res = call_gemini_with_metadata(prompt, self.api_key)
             prompt_t = res.get("prompt_tokens", 0)
             completion_t = res.get("completion_tokens", 0)
             self.prompt_tokens += prompt_t
@@ -145,13 +174,42 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             
         prompt = (
             f"Implement development changes based on the following plan: {json.dumps(plan)}.\n"
-            "If you need to write code to files, write each file in the following format:\n"
-            "### WRITE_FILE: relative/path/to/file.py\n"
-            "```\n"
-            "code contents here\n"
-            "```"
+            "Return a JSON object containing an explanation and an array of written_files with their filepath and content."
         )
-        response_text = self._call_gemini_and_track(prompt)
+        
+        schema = {
+            "type": "OBJECT",
+            "properties": {
+                "explanation": {
+                    "type": "STRING",
+                    "description": "Short explanation of the implemented changes."
+                },
+                "written_files": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "filepath": {
+                                "type": "STRING",
+                                "description": "Relative file path from project root."
+                            },
+                            "content": {
+                                "type": "STRING",
+                                "description": "Full file contents."
+                            }
+                        },
+                        "required": ["filepath", "content"]
+                    }
+                }
+            },
+            "required": ["explanation", "written_files"]
+        }
+        
+        response_text = self._call_gemini_and_track(
+            prompt,
+            response_schema=schema,
+            response_mime_type="application/json"
+        )
         
         # API failure safeguard
         if not response_text:
@@ -161,28 +219,57 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "written_files": []
             }
         
-        # Parse and write files to disk
         written_files = []
+        base_dir = os.path.abspath(".")
+        
+        # Path Traversal Check helper
+        def check_path_safe(filepath: str) -> Optional[str]:
+            target_path = os.path.abspath(filepath)
+            is_safe = (target_path == base_dir) or target_path.startswith(base_dir + os.sep)
+            if os.getenv("TESTING") == "True":
+                import tempfile
+                temp_dir = os.path.abspath(tempfile.gettempdir())
+                if target_path.startswith(temp_dir) or "/folders/" in target_path:
+                    is_safe = True
+            return target_path if is_safe else None
+
+        # 1. Try parsing response_text as structured JSON first
+        try:
+            parsed_data = json.loads(response_text)
+            if isinstance(parsed_data, dict) and "written_files" in parsed_data:
+                for file_info in parsed_data["written_files"]:
+                    filepath = file_info.get("filepath", "").strip()
+                    content = file_info.get("content", "")
+                    if filepath:
+                        target_path = check_path_safe(filepath)
+                        if not target_path:
+                            logger.warning("Path traversal attempt blocked: %s is outside %s", filepath, base_dir)
+                            continue
+                        
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        with open(target_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        written_files.append(filepath)
+                        logger.info("Successfully wrote swarm generated code changes to file (structured JSON): %s", filepath)
+                
+                return {
+                    "status": "completed",
+                    "output": response_text,
+                    "written_files": written_files
+                }
+        except Exception as json_err:
+            logger.info("Structured JSON parsing failed (%s), falling back to legacy line-by-line parser.", json_err)
+
+        # 2. Fallback: Parse and write files using the legacy ### WRITE_FILE pattern
         lines = response_text.splitlines()
         i = 0
         while i < len(lines):
             line = lines[i].strip()
             if line.startswith("### WRITE_FILE:"):
                 filepath = line.replace("### WRITE_FILE:", "").strip()
-                # Path Traversal Guard: Ensure target path remains strictly within working directory (or temp directory for testing)
-                base_dir = os.path.abspath(".")
-                target_path = os.path.abspath(filepath)
-                
-                # Suffix constraint: check target_path exactly equals base_dir or starts with base_dir + directory separator
-                is_safe = (target_path == base_dir) or target_path.startswith(base_dir + os.sep)
-                if os.getenv("TESTING") == "True":
-                    import tempfile
-                    temp_dir = os.path.abspath(tempfile.gettempdir())
-                    if target_path.startswith(temp_dir) or "/folders/" in target_path:
-                        is_safe = True
-                
-                if not is_safe:
-                    logger.warning("Path traversal attempt blocked: %s is outside %s", target_path, base_dir)
+                target_path = check_path_safe(filepath)
+                if not target_path:
+                    logger.warning("Path traversal attempt blocked: %s is outside %s", filepath, base_dir)
                     i += 1
                     continue
 

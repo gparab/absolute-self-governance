@@ -120,22 +120,72 @@ class ContinuousNudger:
                     self.has_transient_error = False
                     return
 
-                # 3. Check if status is COMPLETED
-                if parsed.get("status") == "COMPLETED":
+                # 3. Check status and dry_run configurations
+                status = parsed.get("status")
+                dry_run_plan_path = os.path.join(self.working_directory, "dry_run_plan.json")
+                
+                plan_approved = False
+                if os.path.exists(dry_run_plan_path):
+                    try:
+                        with open(dry_run_plan_path, "r", encoding="utf-8") as f:
+                            plan_data = json.load(f)
+                            if plan_data.get("status") == "APPROVED":
+                                plan_approved = True
+                    except Exception:
+                        pass
+                
+                if status == "APPROVED" or plan_approved:
                     try:
                         self.trigger_succession(content)
+                        if os.path.exists(dry_run_plan_path):
+                            try:
+                                os.remove(dry_run_plan_path)
+                            except Exception:
+                                pass
                     except (HandoffValueError, HandoffKeyError, HandoffTypeError, ValueError, KeyError, TypeError) as e:
                         logger.error("Permanent error in trigger_succession: %s", e)
                         self.last_content = content
                         self.has_transient_error = False
                         return
+                elif status == "COMPLETED":
+                    if self.config.dry_run:
+                        if not os.path.exists(dry_run_plan_path):
+                            candidates = parsed.get("candidates", [])
+                            if not isinstance(candidates, list):
+                                candidates = []
+                            req_vector = [float(len(candidates)), 1.0]
+                            swarm_config = dimension_swarm(req_vector, self.config.default_matrix)
+                            
+                            swarm_counts = {}
+                            for agent in swarm_config.swarm:
+                                swarm_counts[agent.role] = swarm_counts.get(agent.role, 0) + 1
+                                
+                            plan_info = {
+                                "status": "AWAITING_APPROVAL",
+                                "candidates": candidates,
+                                "estimated_cost_usd": len(candidates) * 0.005,
+                                "swarm_counts": swarm_counts
+                            }
+                            with open(dry_run_plan_path, "w", encoding="utf-8") as f:
+                                json.dump(plan_info, f, indent=2)
+                            logger.info("Dry-run plan created at %s. Awaiting approval.", dry_run_plan_path)
+                        
+                        self.last_content = content
+                        self.has_transient_error = False
+                        return
+                    else:
+                        try:
+                            self.trigger_succession(content)
+                        except (HandoffValueError, HandoffKeyError, HandoffTypeError, ValueError, KeyError, TypeError) as e:
+                            logger.error("Permanent error in trigger_succession: %s", e)
+                            self.last_content = content
+                            self.has_transient_error = False
+                            return
                 else:
-                    # status is not COMPLETED (e.g. IN_PROGRESS)
                     self.last_content = content
                     self.has_transient_error = False
                     return
 
-                # If succession completes successfully:
                 self.last_content = content
                 self.has_transient_error = False
 
