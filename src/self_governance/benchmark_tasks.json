@@ -1,0 +1,23 @@
+[
+  {
+    "id": "task_palindrome",
+    "name": "Palindrome Validation",
+    "description": "Write a function 'is_palindrome(s: str) -> bool' in palindrome.py that returns True if the string is a palindrome, ignoring non-alphanumeric characters and casing.",
+    "test_code": "def test_palindrome():\n    from palindrome import is_palindrome\n    assert is_palindrome('A man, a plan, a canal: Panama') is True\n    assert is_palindrome('raceacar') is False\n    assert is_palindrome('') is True\n",
+    "target_file": "palindrome.py"
+  },
+  {
+    "id": "task_fibonacci",
+    "name": "Memoized Fibonacci",
+    "description": "Write a function 'fibonacci_memoized(n: int) -> int' in fibonacci.py that returns the n-th Fibonacci number efficiently using memoization.",
+    "test_code": "def test_fibonacci():\n    from fibonacci import fibonacci_memoized\n    assert fibonacci_memoized(0) == 0\n    assert fibonacci_memoized(1) == 1\n    assert fibonacci_memoized(10) == 55\n    assert fibonacci_memoized(50) == 12586269025\n",
+    "target_file": "fibonacci.py"
+  },
+  {
+    "id": "task_divide",
+    "name": "Safe Division",
+    "description": "Write a function 'safe_divide(a: float, b: float) -> Optional[float]' in division.py that returns the division result or None if division by zero is attempted.",
+    "test_code": "def test_division():\n    from division import safe_divide\n    assert safe_divide(10, 2) == 5.0\n    assert safe_divide(5, 0) is None\n",
+    "target_file": "division.py"
+  }
+]

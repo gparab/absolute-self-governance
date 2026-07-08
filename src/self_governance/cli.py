@@ -28,6 +28,9 @@ def main():
     # stats subcommand
     parser_stats = subparsers.add_parser("stats", help="Show the metrics dashboard")
 
+    # benchmark subcommand
+    parser_bench = subparsers.add_parser("benchmark", help="Run the diagnostic comparison benchmark suite")
+
     args = parser.parse_args()
     config = OrchestratorConfig(args.config)
 
@@ -47,6 +50,17 @@ def main():
         sys.stdout.write("\n")
     elif args.subcommand == "stats":
         display_dashboard()
+    elif args.subcommand == "benchmark":
+        from self_governance.benchmark import run_benchmark
+        results = run_benchmark()
+        print(f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}")
+        print("-" * 96)
+        for task_id, metric in results.items():
+            b = metric["baseline"]
+            a = metric["asg"]
+            b_str = f"{'PASS' if b['passed'] else 'FAIL'} / {b['latency_sec']}s / ${b['estimated_cost_usd']:.5f}"
+            a_str = f"{'PASS' if a['passed'] else 'FAIL'} / {a['latency_sec']}s / ${a['estimated_cost_usd']:.5f}"
+            print(f"{metric['name']:<30} | {b_str:<30} | {a_str:<30}")
 
 if __name__ == "__main__":
     main()
