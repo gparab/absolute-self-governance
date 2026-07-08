@@ -36,3 +36,4 @@ __pycache__/
 self_governance.db
 .learning_state.json
 task.md
+paper_parity_analysis.md
