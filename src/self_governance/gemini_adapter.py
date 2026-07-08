@@ -350,7 +350,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         logger.info("Gemini Reviewer Swarm: Inspecting development changes...")
         try:
             res = subprocess.run(
-                ["ruff", "check", "."], capture_output=True, text=True, timeout=15  # nosec B603 B607
+                ["ruff", "check", "."],
+                capture_output=True,
+                text=True,
+                timeout=15,  # nosec B603 B607
             )
             lint_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"
@@ -423,7 +426,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 if test_target:
                     test_cmd.append(test_target)
                 res = subprocess.run(
-                    test_cmd, capture_output=True, text=True, timeout=30  # nosec B603
+                    test_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,  # nosec B603
                 )
                 test_output = res.stdout + "\n" + res.stderr
                 status = "completed" if res.returncode == 0 else "failed"
@@ -449,7 +455,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         logger.info("Gemini Security Swarm: Running static security checks...")
         try:
             res = subprocess.run(
-                ["bandit", "-r", "src/"], capture_output=True, text=True, timeout=15  # nosec B603 B607
+                ["bandit", "-r", "src/"],
+                capture_output=True,
+                text=True,
+                timeout=15,  # nosec B603 B607
             )
             sec_output = res.stdout + "\n" + res.stderr
             status = "completed" if res.returncode == 0 else "failed"
