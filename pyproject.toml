@@ -13,6 +13,8 @@ license = { text = "MIT" }
 dependencies = [
     "pyyaml",
     "watchdog",
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.setuptools.packages.find]
@@ -20,4 +22,13 @@ where = ["src"]
 
 [project.scripts]
 self-governance = "self_governance.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "httpx",
+]
+
+
 

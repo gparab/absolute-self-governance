@@ -4,6 +4,7 @@ import json
 from self_governance.nudger import ContinuousNudger, write_swarm_config_to_stream
 from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
+from self_governance.dashboard import display_dashboard
 
 def main():
     parser = argparse.ArgumentParser(description="Absolute Self-Governance CLI")
@@ -24,6 +25,9 @@ def main():
     parser_dim.add_argument("-r", "--requirements", required=True, help="Requirements as a JSON string")
     parser_dim.add_argument("-m", "--matrix", required=True, help="Matrix as a JSON string")
 
+    # stats subcommand
+    parser_stats = subparsers.add_parser("stats", help="Show the metrics dashboard")
+
     args = parser.parse_args()
     config = OrchestratorConfig(args.config)
 
@@ -41,7 +45,10 @@ def main():
         swarm_config = dimension_swarm(req, mat)
         write_swarm_config_to_stream(sys.stdout, swarm_config)
         sys.stdout.write("\n")
+    elif args.subcommand == "stats":
+        display_dashboard()
 
 if __name__ == "__main__":
     main()
+
 

@@ -64,3 +64,12 @@ def test_cli_invalid_arguments():
         with pytest.raises(SystemExit) as exc_info:
             main()
         assert exc_info.value.code != 0
+
+def test_cli_stats(capsys, tmp_path):
+    # Ensure stats prints headers successfully
+    test_args = ["self-governance", "stats"]
+    with patch.object(sys, "argv", test_args):
+        main()
+    captured = capsys.readouterr()
+    assert "Self-Governing Software Factory Dashboard" in captured.out
+
