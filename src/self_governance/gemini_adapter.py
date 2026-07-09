@@ -19,9 +19,11 @@ def call_gemini_with_metadata(
     api_key: str,
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    model_name = model or "gemini-2.5-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
 
@@ -90,10 +92,11 @@ def call_gemini(
     api_key: str,
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> str:
     """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
     return call_gemini_with_metadata(
-        prompt, api_key, response_schema, response_mime_type
+        prompt, api_key, response_schema, response_mime_type, model
     )["text"]
 
 
@@ -102,8 +105,30 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
     A concrete execution adapter that delegates tasks to Gemini API models.
     """
 
-    def __init__(self, api_key: str = None) -> None:
+    def __init__(
+        self,
+        api_key: str = None,
+        model_default: Optional[str] = None,
+        model_development: Optional[str] = None,
+        model_review: Optional[str] = None,
+        model_security: Optional[str] = None,
+    ) -> None:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        try:
+            from self_governance.config import OrchestratorConfig
+
+            config = OrchestratorConfig()
+            default_val = model_default or config.model_default
+            self.model_default = default_val
+            self.model_development = model_development or config.model_development
+            self.model_review = model_review or config.model_review
+            self.model_security = model_security or config.model_security
+        except Exception:
+            default_val = model_default or "gemini-2.5-flash"
+            self.model_default = default_val
+            self.model_development = model_development or default_val
+            self.model_review = model_review or default_val
+            self.model_security = model_security or default_val
         self.prompt_tokens = 0
         self.completion_tokens = 0
         if not self.api_key:
@@ -116,8 +141,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         prompt: str,
         response_schema: Optional[Dict[str, Any]] = None,
         response_mime_type: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> str:
         """Call Gemini and accumulate token counts for pricing calculations."""
+        model_name = model or self.model_default
         with tracer.start_as_current_span("gemini_api_call") as span:
             if os.getenv("TESTING") == "True":
                 try:
@@ -126,18 +153,36 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         self.api_key,
                         response_schema=response_schema,
                         response_mime_type=response_mime_type,
+                        model=model_name,
                     )
                 except TypeError:
-                    return call_gemini(prompt, self.api_key)
+                    try:
+                        return call_gemini(
+                            prompt,
+                            self.api_key,
+                            response_schema=response_schema,
+                            response_mime_type=response_mime_type,
+                        )
+                    except TypeError:
+                        return call_gemini(prompt, self.api_key)
             try:
                 res = call_gemini_with_metadata(
                     prompt,
                     self.api_key,
                     response_schema=response_schema,
                     response_mime_type=response_mime_type,
+                    model=model_name,
                 )
             except TypeError:
-                res = call_gemini_with_metadata(prompt, self.api_key)
+                try:
+                    res = call_gemini_with_metadata(
+                        prompt,
+                        self.api_key,
+                        response_schema=response_schema,
+                        response_mime_type=response_mime_type,
+                    )
+                except TypeError:
+                    res = call_gemini_with_metadata(prompt, self.api_key)
             prompt_t = res.get("prompt_tokens", 0)
             completion_t = res.get("completion_tokens", 0)
             self.prompt_tokens += prompt_t
@@ -169,7 +214,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             }
 
         prompt = f"Decompose the following coding task into a brief list of sequential development steps: {task_description}. Return only the steps as a JSON list of strings."
-        response_text = self._call_gemini_and_track(prompt)
+        response_text = self._call_gemini_and_track(
+            prompt, model=self.model_development
+        )
         try:
             steps = json.loads(response_text)
         except Exception:
@@ -364,7 +411,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Analyze the following linter output and explain key violations to fix: {lint_output}"
-            response_text = self._call_gemini_and_track(prompt)
+            response_text = self._call_gemini_and_track(prompt, model=self.model_review)
             return {
                 "status": status,
                 "output": response_text,
@@ -440,7 +487,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Review the test output and state if any failures require fixes: {test_output}"
-            response_text = self._call_gemini_and_track(prompt)
+            response_text = self._call_gemini_and_track(prompt, model=self.model_review)
             return {
                 "status": status,
                 "output": response_text,
@@ -469,7 +516,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Analyze the following bandit security scan report and highlight critical vulnerability risks: {sec_output}"
-            response_text = self._call_gemini_and_track(prompt)
+            response_text = self._call_gemini_and_track(
+                prompt, model=self.model_security
+            )
             return {
                 "status": status,
                 "output": response_text,
@@ -487,5 +536,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         logger.info("Gemini Documentation Swarm: Generating project descriptions...")
         prompt = f"Generate documentation for these changes: {json.dumps(changes)}"
         return self._run_or_fallback(
-            prompt, "Gemini Doc: README and docstrings compiled."
+            prompt,
+            "Gemini Doc: README and docstrings compiled.",
+            model=self.model_development,
         )

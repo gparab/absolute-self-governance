@@ -51,6 +51,7 @@ def run_consensus(
     adapter: Optional[Any] = None,
     requirements: Optional[List[float]] = None,
     T_max: float = 2.0,
+    model: Optional[str] = None,
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -182,7 +183,7 @@ def run_consensus(
                         "Score: <number between 1.0 and 10.0>\n"
                         "Reason: <brief justification of why this role is suitable or not>"
                     )
-                    res = adapter._call_gemini_and_track(prompt)
+                    res = adapter._call_gemini_and_track(prompt, model=model)
                     score = 7.5
                     justification = "No justification provided."
                     if "Score:" in res:

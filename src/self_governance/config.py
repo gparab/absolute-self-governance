@@ -24,6 +24,13 @@ DEFAULT_CONFIG = {
         "default_matrix": [[1.0, 0.5], [0.0, 1.0]],
         "webhook_matrix": [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]],
     },
+    "models": {
+        "default": "gemini-2.5-flash",
+        "succession": "gemini-2.5-flash",
+        "development": "gemini-2.5-flash",
+        "review": "gemini-2.5-flash",
+        "security": "gemini-2.5-flash",
+    },
 }
 
 
@@ -98,3 +105,23 @@ class OrchestratorConfig:
         return self.config_data["dimensioning"].get(
             "webhook_matrix", [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]]
         )
+
+    @property
+    def model_default(self) -> str:
+        return self.config_data["models"].get("default", "gemini-2.5-flash")
+
+    @property
+    def model_succession(self) -> str:
+        return self.config_data["models"].get("succession", self.model_default)
+
+    @property
+    def model_development(self) -> str:
+        return self.config_data["models"].get("development", self.model_default)
+
+    @property
+    def model_review(self) -> str:
+        return self.config_data["models"].get("review", self.model_default)
+
+    @property
+    def model_security(self) -> str:
+        return self.config_data["models"].get("security", self.model_default)

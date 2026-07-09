@@ -311,6 +311,7 @@ class ContinuousNudger:
             gamma=self.config.consensus_temperature_step,
             delta=self.config.consensus_decay_step,
             adapter=adapter,
+            model=self.config.model_succession,
         )
         approved_roster = res.approved_roster
 

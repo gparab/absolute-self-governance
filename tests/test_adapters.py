@@ -237,3 +237,55 @@ def test_gemini_parser_fuzzing(monkeypatch):
         os.remove("test_huge.py")
     except Exception:
         pass
+
+
+def test_model_routing(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+    from self_governance.config import OrchestratorConfig
+
+    called_models = []
+
+    def mock_call_gemini_with_metadata(
+        prompt, api_key, response_schema=None, response_mime_type=None, model=None
+    ):
+        called_models.append(model)
+        return {"text": "{}", "prompt_tokens": 10, "completion_tokens": 10}
+
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.call_gemini_with_metadata",
+        mock_call_gemini_with_metadata,
+    )
+
+    # Force dynamic configuration overrides
+    config = OrchestratorConfig()
+    config.config_data["models"] = {
+        "default": "gemini-2.5-flash",
+        "development": "gemini-custom-dev",
+        "review": "gemini-custom-review",
+        "security": "gemini-custom-security",
+    }
+    # Temporarily force get_learning_state or similar if needed, but OrchestratorConfig reads from its own config_data.
+    # We mock OrchestratorConfig instantiation:
+    monkeypatch.setattr(
+        "self_governance.config.OrchestratorConfig", lambda *args, **kwargs: config
+    )
+
+    adapter = GeminiExecutionAdapter(api_key="test_key")
+    assert adapter.model_development == "gemini-custom-dev"
+    assert adapter.model_review == "gemini-custom-review"
+    assert adapter.model_security == "gemini-custom-security"
+
+    # Trigger development
+    monkeypatch.setattr(
+        os, "getenv", lambda name: "True" if name == "TESTING" else None
+    )
+    adapter.plan_task("Test task")
+    assert "gemini-custom-dev" in called_models
+
+    called_models.clear()
+    adapter.review_code([], {})
+    assert "gemini-custom-review" in called_models
+
+    called_models.clear()
+    adapter.run_security_scan([], {})
+    assert "gemini-custom-security" in called_models
