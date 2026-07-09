@@ -20,6 +20,7 @@ dependencies = [
     "stripe",
     "opentelemetry-api",
     "opentelemetry-sdk",
+    "pydantic",
 ]
 
 [tool.setuptools.packages.find]

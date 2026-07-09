@@ -1,6 +1,7 @@
 import os
 import random
 import math
+import json
 from typing import List, Optional, Any
 from self_governance.tracing import tracer
 
@@ -98,14 +99,15 @@ def run_consensus(
     if not isinstance(target_tau, (int, float)) or not math.isfinite(target_tau):
         raise ValueError("target_tau must be a finite number")
 
+    from self_governance.agency_agents_adapter import (
+        get_persona,
+        get_capability_prompt,
+    )
+
     with tracer.start_as_current_span("run_consensus") as span:
         span.set_attribute("initial_roster", ",".join(initial_roster))
-        # Deduplicate initial_roster preserving order at the beginning of run_consensus
-        unique_roster = []
-        for agent in initial_roster:
-            if agent not in unique_roster:
-                unique_roster.append(agent)
-        initial_roster = unique_roster
+        # Deduplicate initial_roster preserving order at the beginning of run_consensus in O(N)
+        initial_roster = list(dict.fromkeys(initial_roster))
 
         if not initial_roster:
             return ConsensusResult([], float(initial_temp), float(target_tau))
@@ -144,11 +146,6 @@ def run_consensus(
                     + "\n\n"
                 )
             for agent in initial_roster:
-                from self_governance.agency_agents_adapter import (
-                    get_persona,
-                    get_capability_prompt,
-                )
-
                 persona = get_persona(agent)
 
                 capability_info = ""
@@ -179,27 +176,54 @@ def run_consensus(
                         f"{persona_info}"
                         f"The full list of candidate agent roles under consideration is: {initial_roster}.\n"
                         "Considering the feedback from your peers (if any), rate the suitability of this agent compared to the others.\n"
-                        "Format your response exactly as:\n"
-                        "Score: <number between 1.0 and 10.0>\n"
-                        "Reason: <brief justification of why this role is suitable or not>"
+                        "Return a JSON object containing a float score and justification reason."
                     )
-                    res = adapter._call_gemini_and_track(prompt, model=model)
+                    schema = {
+                        "type": "OBJECT",
+                        "properties": {
+                            "score": {
+                                "type": "NUMBER",
+                                "description": "Suitability score between 1.0 and 10.0.",
+                            },
+                            "reason": {
+                                "type": "STRING",
+                                "description": "Brief justification of why this role is suitable or not.",
+                            },
+                        },
+                        "required": ["score", "reason"],
+                    }
+                    res = adapter._call_gemini_and_track(
+                        prompt,
+                        response_schema=schema,
+                        response_mime_type="application/json",
+                        model=model,
+                    )
                     score = 7.5
                     justification = "No justification provided."
-                    if "Score:" in res:
+                    if res:
                         try:
-                            parts = res.split("Reason:")
-                            score_part = parts[0].replace("Score:", "").strip()
-                            score = float(score_part)
-                            if len(parts) > 1:
-                                justification = parts[1].strip()
+                            # 1. Parse JSON if structured output works
+                            data = json.loads(res)
+                            score = float(data.get("score", 7.5))
+                            justification = data.get(
+                                "reason", "No justification provided."
+                            )
                         except Exception:
-                            score = 7.5
-                    else:
-                        try:
-                            score = float(res)
-                        except Exception:
-                            score = 7.5
+                            # Fallback parsing (split string style)
+                            if "Score:" in res:
+                                try:
+                                    parts = res.split("Reason:")
+                                    score_part = parts[0].replace("Score:", "").strip()
+                                    score = float(score_part)
+                                    if len(parts) > 1:
+                                        justification = parts[1].strip()
+                                except Exception:
+                                    score = 7.5
+                            else:
+                                try:
+                                    score = float(res)
+                                except Exception:
+                                    score = 7.5
                 else:
                     if iteration <= B:
                         score = 8.0 + rng.uniform(-0.1, 0.1)

@@ -285,18 +285,18 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             }
 
         written_files = []
-        base_dir = os.path.abspath(".")
+        base_dir = os.path.realpath(".")
 
         # Path Traversal Check helper
         def check_path_safe(filepath: str) -> Optional[str]:
-            target_path = os.path.abspath(filepath)
+            target_path = os.path.realpath(filepath)
             is_safe = (target_path == base_dir) or target_path.startswith(
                 base_dir + os.sep
             )
             if os.getenv("TESTING") == "True":
                 import tempfile
 
-                temp_dir = os.path.abspath(tempfile.gettempdir())
+                temp_dir = os.path.realpath(tempfile.gettempdir())
                 if target_path.startswith(temp_dir) or "/folders/" in target_path:
                     is_safe = True
             return target_path if is_safe else None
@@ -463,27 +463,35 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "Containerized test sandbox execution finished with code %s",
                 res.returncode,
             )
-        except Exception:
-            # Fallback to local subprocess pytest on the host process
-            logger.warning(
-                "Docker sandbox unavailable. Falling back to host subprocess test runner."
-            )
-            try:
-                test_cmd = [sys.executable, "-m", "pytest"]
-                if test_target:
-                    test_cmd.append(test_target)
-                res = subprocess.run(
-                    test_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,  # nosec B603
+        except Exception as docker_err:
+            if os.getenv("TESTING") == "True":
+                # Fallback to local subprocess pytest on the host process *only* during tests
+                logger.warning(
+                    "Docker sandbox unavailable. Falling back to host subprocess test runner for testing environment."
                 )
-                test_output = res.stdout + "\n" + res.stderr
-                status = "completed" if res.returncode == 0 else "failed"
-            except Exception as e:
+                try:
+                    test_cmd = [sys.executable, "-m", "pytest"]
+                    if test_target:
+                        test_cmd.append(test_target)
+                    res = subprocess.run(
+                        test_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30,  # nosec B603
+                    )
+                    test_output = res.stdout + "\n" + res.stderr
+                    status = "completed" if res.returncode == 0 else "failed"
+                except Exception as e:
+                    status = "failed"
+                    test_output = f"Test execution failed: {e}"
+                    logger.error("Failed to run host subprocess test suite: %s", e)
+            else:
                 status = "failed"
-                test_output = f"Test execution failed: {e}"
-                logger.error("Failed to run host subprocess test suite: %s", e)
+                test_output = f"Containerized test execution failed: {docker_err}. Host execution fallback is disabled for security."
+                logger.error(
+                    "Failed to run containerized test suite: %s. Host execution fallback blocked.",
+                    docker_err,
+                )
 
         if self.api_key:
             prompt = f"Review the test output and state if any failures require fixes: {test_output}"

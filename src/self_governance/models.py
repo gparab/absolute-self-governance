@@ -1,16 +1,22 @@
-from dataclasses import dataclass, asdict, field
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Iterator, Tuple
 
 
-@dataclass
-class Agent:
+class Agent(BaseModel):
     """
     Represents an individual agent in the swarm.
     """
 
     role: str
     prompt: str
-    capabilities: List[str] = field(default_factory=list)
+    capabilities: List[str] = Field(default_factory=list)
+
+    def __init__(self, *args, **kwargs) -> None:
+        if args:
+            field_names = ["role", "prompt", "capabilities"]
+            for name, val in zip(field_names, args):
+                kwargs[name] = val
+        super().__init__(**kwargs)
 
     def __getitem__(self, key: str) -> Any:
         if key in ("role", "prompt", "capabilities"):
@@ -50,26 +56,24 @@ class Agent:
     def __len__(self) -> int:
         return 3
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
         Serialize Agent to a dictionary.
         """
-        return asdict(self)
-
-    def model_dump(self) -> Dict[str, Any]:
-        """
-        Serialize Agent to a dictionary (alias for dict()).
-        """
-        return self.dict()
+        return self.model_dump(*args, **kwargs)
 
 
-@dataclass
-class SwarmConfig:
+class SwarmConfig(BaseModel):
     """
     Configuration for the swarm of agents.
     """
 
-    swarm: List[Agent]
+    swarm: Any
+
+    def __init__(self, *args, **kwargs) -> None:
+        if args:
+            kwargs["swarm"] = args[0]
+        super().__init__(**kwargs)
 
     def __getitem__(self, key: str) -> Any:
         if key == "swarm":
@@ -114,28 +118,19 @@ class SwarmConfig:
     def __len__(self) -> int:
         return len(self.keys())
 
-    def dict(self) -> Dict[str, Any]:
+    def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
         Serialize SwarmConfig to a dictionary.
-
-        If the number of agents is 1000 or fewer, returns a dictionary with
-        agents serialized to standard dicts. If the number of agents exceeds
-        1000, returns the raw agents list to prevent OOM.
-
-        Returns:
-            A dictionary representation of the SwarmConfig.
         """
         if not hasattr(self, "swarm"):
             return {}
         if len(self.swarm) <= 1000:
-            return {"swarm": [dict(a) for a in self.swarm]}
+            return {"swarm": [a.dict(*args, **kwargs) for a in self.swarm]}
+        # Avoid serializing individual items if too large to prevent OOM
         return {"swarm": self.swarm}
 
-    def model_dump(self) -> Dict[str, Any]:
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        Serialize SwarmConfig to a dictionary (alias for dict()).
-
-        Returns:
-            A dictionary representation of the SwarmConfig.
+        Serialize SwarmConfig to a dictionary.
         """
-        return self.dict()
+        return self.dict(*args, **kwargs)

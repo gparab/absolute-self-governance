@@ -47,7 +47,6 @@ def write_swarm_config_to_stream(stream, config) -> None:
         if not first:
             stream.write(",\n")
         first = False
-        # Convert agent (dataclass) to dict so it can be serialized to JSON
         agent_str = json.dumps(dict(agent), indent=2)
         indented_agent = "\n".join("    " + line for line in agent_str.splitlines())
         stream.write(indented_agent)
