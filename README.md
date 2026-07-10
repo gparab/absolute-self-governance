@@ -505,6 +505,8 @@ This manifest is provided as a deployment reference and has not been applied to 
 
 **Endpoints:** `/health` (probes, unauthenticated, no data), `/metrics` (Prometheus — keep cluster-internal; it exposes cost counters), `/status` + `/webhook` (tenant-authenticated), `/tenants` (admin key). Set `OTEL_EXPORTER_OTLP_ENDPOINT` to ship traces; unset means spans print to stdout.
 
+See [RELATED_PROJECTS.md](RELATED_PROJECTS.md) for how this compares to MetaGPT, ChatDev, OpenHands, and other projects in the space, plus libraries that could extend this repo's own functionality.
+
 ---
 
 ## 8. Contributing
