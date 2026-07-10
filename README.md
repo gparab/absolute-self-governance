@@ -346,12 +346,46 @@ sequenceDiagram
 ```
 
 
+### Quickstart: `dev` mode (watcher + live monitor)
+
+The fastest way to run ASG against your IDE is one command from your project directory:
+
+```bash
+export GEMINI_API_KEY=...   # required for real LLM runs
+self-governance dev
+```
+
+This starts the handoff watcher **and** a local monitoring server:
+
+- `http://127.0.0.1:8642/` — live dashboard (session cost, runs, success rate, consensus iterations; refreshes every 2 s)
+- `http://127.0.0.1:8642/status` — the same data as JSON
+- `http://127.0.0.1:8642/metrics` — Prometheus format, scrapeable by any local Prometheus
+
+The monitor binds to localhost only. For a terminal-only view, run `self-governance stats --watch` in a second pane.
+
+Any editor works — ASG triggers on file save, so there is no per-IDE plugin. To wire it into VS Code as a task, add `.vscode/tasks.json`:
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ASG: dev mode",
+      "type": "shell",
+      "command": "self-governance dev",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
+```
+
 ### Steps to Use
 
 Follow these steps to coordinate an autonomous development swarm in your workspace:
 
 #### Step 1: Initialize the Watcher
-Start the orchestrator background process to monitor your project workspace directory (replace `.` with the path to your workspace if different):
+Start the orchestrator background process to monitor your project workspace directory (replace `.` with the path to your workspace if different), or use `self-governance dev` (above) to get the watcher and monitor together:
 ```bash
 uv run self-governance run-nudger --dir .
 ```
@@ -413,7 +447,30 @@ To mitigate this, the orchestrator implements:
 4. **Relational Database Persistence**: Supports full multi-tenant SaaS state persistence using SQLAlchemy (SQLite/PostgreSQL) to store succession logs, approved rosters, rate limit history, and token usage metadata.
 
 ### Known Limitations
-1. **Dynamic Roster Complexity**: Deliberation parameters (like temperature schedules) are optimized for small-to-medium councils ($N \le 50$) and may scale slower on extremely large consensus boards.
+1. **Dynamic Roster Complexity**: Deliberation parameters (like temperature schedules) are optimized for small-to-medium councils ($N \le 50$) and may scale slower on extremely large consensus boards. LLM-backed consensus additionally caps rosters at 100 agents and 10 minutes wall-clock per run to bound spend.
+2. **Single-Instance Nudger**: the file-watching nudger coordinates via a `threading.Lock` and local files; run exactly one nudger per working directory. The webhook app scales horizontally (shared database), the nudger does not.
+
+### Production Runbook
+
+**Required secrets** (Kubernetes `secretKeyRef` names in `k8s-webhook.yaml`):
+
+| Secret | Key | Purpose |
+|---|---|---|
+| `db-secrets` | `database-url` | Shared Postgres URL, e.g. `postgresql://user:pass@host/asg` |
+| `github-secrets` | `webhook-secret` | HMAC secret configured on the GitHub webhook |
+| `admin-secrets` | `api-key` | `X-Admin-Key` header value for `POST /tenants` |
+| `gemini-secrets` | `api-key` | Google Gemini API key |
+
+**Deploy sequence:**
+```bash
+docker build -t <registry>/self-governance:<tag> . && docker push <registry>/self-governance:<tag>
+uv run alembic upgrade head        # run against DATABASE_URL before rollout
+kubectl apply -f k8s-webhook.yaml
+```
+
+**Schema changes** go through Alembic (`uv run alembic revision --autogenerate -m "..."`), never `create_all`, once a production database exists. Tenants are never hard-deleted — usage and session history is audit data.
+
+**Endpoints:** `/health` (probes, unauthenticated, no data), `/metrics` (Prometheus — keep cluster-internal; it exposes cost counters), `/status` + `/webhook` (tenant-authenticated), `/tenants` (admin key). Set `OTEL_EXPORTER_OTLP_ENDPOINT` to ship traces; unset means spans print to stdout.
 
 ---
 
