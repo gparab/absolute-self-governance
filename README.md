@@ -209,7 +209,7 @@ magical-meitner/
 
 ### Installation Instructions
 
-This project requires **Python 3.13+**.
+This project requires **Python 3.11+**.
 
 #### Via PyPI (Recommended)
 Install the `self-governance` CLI globally in an isolated environment:
