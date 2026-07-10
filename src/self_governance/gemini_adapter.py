@@ -20,6 +20,7 @@ def call_gemini_with_metadata(
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
     model_name = model or "gemini-2.5-flash"
@@ -27,12 +28,14 @@ def call_gemini_with_metadata(
     headers = {"Content-Type": "application/json"}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    if response_mime_type or response_schema:
+    if response_mime_type or response_schema or max_output_tokens:
         gen_config = {}
         if response_mime_type:
             gen_config["responseMimeType"] = response_mime_type
         if response_schema:
             gen_config["responseSchema"] = response_schema
+        if max_output_tokens:
+            gen_config["maxOutputTokens"] = max_output_tokens
         data["generationConfig"] = gen_config
 
     attempts = 3
@@ -51,7 +54,9 @@ def call_gemini_with_metadata(
                 completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
 
                 text = ""
+                finish_reason = "STOP"
                 if candidates:
+                    finish_reason = candidates[0].get("finishReason", "STOP")
                     content = candidates[0].get("content", {})
                     parts = content.get("parts", [])
                     if parts:
@@ -61,6 +66,7 @@ def call_gemini_with_metadata(
                     "text": text,
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
+                    "finish_reason": finish_reason,
                 }
         except urllib.error.HTTPError as he:
             if he.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
@@ -84,7 +90,7 @@ def call_gemini_with_metadata(
             else:
                 logger.error("Failed to query Gemini API: %s", e)
                 break
-    return {"text": "", "prompt_tokens": 0, "completion_tokens": 0}
+    return {"text": "", "prompt_tokens": 0, "completion_tokens": 0, "finish_reason": "STOP"}
 
 
 def call_gemini(
@@ -93,11 +99,17 @@ def call_gemini(
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> str:
     """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
-    return call_gemini_with_metadata(
-        prompt, api_key, response_schema, response_mime_type, model
-    )["text"]
+    try:
+        return call_gemini_with_metadata(
+            prompt, api_key, response_schema, response_mime_type, model, max_output_tokens
+        )["text"]
+    except TypeError:
+        return call_gemini_with_metadata(
+            prompt, api_key, response_schema, response_mime_type, model
+        )["text"]
 
 
 class GeminiExecutionAdapter(BaseExecutionAdapter):
@@ -142,47 +154,56 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         response_schema: Optional[Dict[str, Any]] = None,
         response_mime_type: Optional[str] = None,
         model: Optional[str] = None,
-    ) -> str:
+        max_output_tokens: Optional[int] = None,
+        return_metadata: bool = False,
+    ) -> Any:
         """Call Gemini and accumulate token counts for pricing calculations."""
         model_name = model or self.model_default
         with tracer.start_as_current_span("gemini_api_call") as span:
             if os.getenv("TESTING") == "True":
                 try:
-                    return call_gemini(
+                    res_text = call_gemini(
                         prompt,
                         self.api_key,
                         response_schema=response_schema,
                         response_mime_type=response_mime_type,
                         model=model_name,
+                        max_output_tokens=max_output_tokens,
                     )
+                    res = {"text": res_text, "finish_reason": "STOP"}
                 except TypeError:
                     try:
-                        return call_gemini(
+                        res_text = call_gemini(
                             prompt,
                             self.api_key,
                             response_schema=response_schema,
                             response_mime_type=response_mime_type,
+                            max_output_tokens=max_output_tokens,
                         )
+                        res = {"text": res_text, "finish_reason": "STOP"}
                     except TypeError:
-                        return call_gemini(prompt, self.api_key)
-            try:
-                res = call_gemini_with_metadata(
-                    prompt,
-                    self.api_key,
-                    response_schema=response_schema,
-                    response_mime_type=response_mime_type,
-                    model=model_name,
-                )
-            except TypeError:
+                        res = {"text": call_gemini(prompt, self.api_key), "finish_reason": "STOP"}
+            else:
                 try:
                     res = call_gemini_with_metadata(
                         prompt,
                         self.api_key,
                         response_schema=response_schema,
                         response_mime_type=response_mime_type,
+                        model=model_name,
+                        max_output_tokens=max_output_tokens,
                     )
                 except TypeError:
-                    res = call_gemini_with_metadata(prompt, self.api_key)
+                    try:
+                        res = call_gemini_with_metadata(
+                            prompt,
+                            self.api_key,
+                            response_schema=response_schema,
+                            response_mime_type=response_mime_type,
+                            max_output_tokens=max_output_tokens,
+                        )
+                    except TypeError:
+                        res = call_gemini_with_metadata(prompt, self.api_key)
             prompt_t = res.get("prompt_tokens", 0)
             completion_t = res.get("completion_tokens", 0)
             self.prompt_tokens += prompt_t
@@ -196,13 +217,15 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
             ASG_SWARM_COST_USD.inc(cost)
 
+            if return_metadata:
+                return res
             return res.get("text", "")
 
-    def _run_or_fallback(self, prompt: str, fallback_msg: str) -> Dict[str, Any]:
+    def _run_or_fallback(self, prompt: str, fallback_msg: str, model: Optional[str] = None) -> Dict[str, Any]:
         """Verify API key presence and return Gemini output or a fallback message."""
         if not self.api_key:
             return {"status": "completed", "output": fallback_msg}
-        response_text = self._call_gemini_and_track(prompt)
+        response_text = self._call_gemini_and_track(prompt, model=model)
         return {"status": "completed", "output": response_text or fallback_msg}
 
     def plan_task(self, task_description: str) -> Dict[str, Any]:
@@ -548,3 +571,57 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             "Gemini Doc: README and docstrings compiled.",
             model=self.model_development,
         )
+
+    def consult_advisor(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        logger.info("Gemini Advisor: Consulting higher-intelligence advisor model...")
+        
+        try:
+            from self_governance.config import OrchestratorConfig
+            config = OrchestratorConfig()
+            max_tokens = config.advisor_max_tokens
+            advisor_enabled = config.advisor_enabled
+        except Exception:
+            max_tokens = 2048
+            advisor_enabled = True
+
+        if not advisor_enabled:
+            return {"status": "skipped", "output": "Advisor tool is disabled by configuration."}
+
+        history_str = ""
+        for msg in conversation_history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            history_str += f"{role.upper()}: {content}\n\n"
+
+        prompt = (
+            "You are a high-intelligence Advisor Agent. Review the following conversation history and provide strategic guidance:\n\n"
+            f"{history_str}"
+        )
+
+        if not self.api_key:
+            return {
+                "status": "completed",
+                "output": "Advisor Mock Fallback: Establish modular architecture and run all validation tests.",
+                "stop_reason": "end_turn"
+            }
+
+        res_data = self._call_gemini_and_track(
+            prompt,
+            model=self.model_review,
+            max_output_tokens=max_tokens,
+            return_metadata=True
+        )
+
+        text = res_data.get("text", "")
+        finish_reason = res_data.get("finish_reason", "STOP")
+        stop_reason = "end_turn"
+        
+        if finish_reason == "MAX_TOKENS" or len(text.strip()) == 0:
+            stop_reason = "max_tokens"
+            text += f"\n\n[Advisor output truncated at max_tokens={max_tokens}.]"
+
+        return {
+            "status": "completed",
+            "output": text,
+            "stop_reason": stop_reason
+        }

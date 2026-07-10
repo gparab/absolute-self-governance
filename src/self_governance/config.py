@@ -31,6 +31,12 @@ DEFAULT_CONFIG = {
         "review": "gemini-2.5-flash",
         "security": "gemini-2.5-flash",
     },
+    "advisor": {
+        "enabled": True,
+        "nudge_turn": 2,
+        "nudge_text": "Please call advisor() before committing to an approach or declaring completion.",
+        "max_tokens": 2048,
+    },
 }
 
 
@@ -125,3 +131,19 @@ class OrchestratorConfig:
     @property
     def model_security(self) -> str:
         return self.config_data["models"].get("security", self.model_default)
+
+    @property
+    def advisor_enabled(self) -> bool:
+        return self.config_data["advisor"].get("enabled", True)
+
+    @property
+    def advisor_nudge_turn(self) -> int:
+        return self.config_data["advisor"].get("nudge_turn", 2)
+
+    @property
+    def advisor_nudge_text(self) -> str:
+        return self.config_data["advisor"].get("nudge_text", "")
+
+    @property
+    def advisor_max_tokens(self) -> int:
+        return self.config_data["advisor"].get("max_tokens", 2048)

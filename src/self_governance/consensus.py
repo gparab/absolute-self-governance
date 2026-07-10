@@ -2,8 +2,32 @@ import os
 import random
 import math
 import json
+import base64
 from typing import List, Optional, Any
 from self_governance.tracing import tracer
+
+
+def _encrypt_reason(reason: str, key: str = "ASG_VOTER_KEY") -> str:
+    """Encrypt reasoning text using simple XOR cipher and base64 encoding."""
+    encoded_bytes = reason.encode("utf-8")
+    key_bytes = key.encode("utf-8")
+    cipher_bytes = bytearray(
+        encoded_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(encoded_bytes))
+    )
+    return base64.b64encode(cipher_bytes).decode("utf-8")
+
+
+def _decrypt_reason(cipher_text: str, key: str = "ASG_VOTER_KEY") -> str:
+    """Decrypt XOR-ciphered base64 text back to plaintext string."""
+    try:
+        cipher_bytes = base64.b64decode(cipher_text.encode("utf-8"))
+        key_bytes = key.encode("utf-8")
+        plain_bytes = bytearray(
+            cipher_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(cipher_bytes))
+        )
+        return plain_bytes.decode("utf-8")
+    except Exception:
+        return cipher_text
 
 
 class ConsensusResult(tuple):
@@ -129,7 +153,19 @@ def run_consensus(
 
         from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
 
+        try:
+            from self_governance.config import OrchestratorConfig
+            config = OrchestratorConfig()
+            advisor_enabled = config.advisor_enabled
+            nudge_turn = config.advisor_nudge_turn
+            nudge_text = config.advisor_nudge_text
+        except Exception:
+            advisor_enabled = True
+            nudge_turn = 2
+            nudge_text = "Please call advisor() before committing to an approach or declaring completion."
+
         justifications = {}
+        advisor_called = False
 
         while True:
             ASG_CONSENSUS_ITERATIONS.inc()
@@ -140,11 +176,30 @@ def run_consensus(
                 peer_feedback = (
                     "Here is the peer feedback from the previous round of deliberation:\n"
                     + "\n".join(
-                        f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
+                        f"- '{a}' was rated {info['score']}. Peer justification: {_decrypt_reason(info['justification'])}"
                         for a, info in justifications.items()
                     )
                     + "\n\n"
                 )
+
+            if advisor_enabled and iteration == nudge_turn and not advisor_called and adapter is not None:
+                convo = [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Consensus Turn Nudge at Iteration {iteration}.\n"
+                            f"Goal: Achieve succession consensus on roster {initial_roster}.\n"
+                            f"Current threshold tau is {tau:.2f}, temperature is {temp:.2f}.\n"
+                            f"Nudge instruction: {nudge_text}\n"
+                            f"Voter justifications so far: {justifications}"
+                        )
+                    }
+                ]
+                advisor_res = adapter.consult_advisor(convo)
+                advisor_called = True
+                advisor_advice = advisor_res.get("output", "")
+                if advisor_advice:
+                    peer_feedback += f"Advisor Strategic Advice: {advisor_advice}\n\n"
             for agent in initial_roster:
                 persona = get_persona(agent)
 
@@ -237,7 +292,7 @@ def run_consensus(
                 scores[agent] = score
                 new_justifications[agent] = {
                     "score": score,
-                    "justification": justification,
+                    "justification": _encrypt_reason(justification),
                 }
 
             justifications = new_justifications

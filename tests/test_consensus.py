@@ -148,3 +148,53 @@ def test_consensus_temperature_clamped_by_t_max():
         ["agent_A"], B=1, target_tau=20.0, initial_temp=1.0, gamma=2.0, T_max=1.5
     )
     assert res.final_temperature == 1.5
+
+
+def test_encryption_decryption():
+    from self_governance.consensus import _encrypt_reason, _decrypt_reason
+    msg = "This is a secure deliberation justification."
+    encrypted = _encrypt_reason(msg)
+    assert encrypted != msg
+    decrypted = _decrypt_reason(encrypted)
+    assert decrypted == msg
+
+
+def test_advisor_nudge_and_capping():
+    from unittest.mock import MagicMock
+    from self_governance.consensus import run_consensus
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    # Mock the adapter to simulate the advisor tool and output capping
+    mock_adapter = MagicMock(spec=GeminiExecutionAdapter)
+    mock_adapter.prompt_tokens = 10
+    mock_adapter.completion_tokens = 20
+    mock_adapter.consult_advisor.return_value = {
+        "status": "completed",
+        "output": "Strategic Advisor Guidance: Keep architecture clean.",
+        "stop_reason": "end_turn"
+    }
+
+    # Run consensus with the mock adapter
+    # Set B=3, target_tau=8.5 so it takes multiple iterations.
+    # Nudge turn defaults to 2.
+    res = run_consensus(
+        ["agent_A", "agent_B"],
+        B=3,
+        target_tau=8.5,
+        adapter=mock_adapter
+    )
+    
+    # Verify that the advisor was called at least once
+    assert mock_adapter.consult_advisor.called
+
+    # Test consult_advisor with truncation (finishReason = MAX_TOKENS)
+    mock_adapter_trunc = GeminiExecutionAdapter(api_key="MOCK_KEY")
+    mock_adapter_trunc._call_gemini_and_track = MagicMock(return_value={
+        "text": "Partial advice...",
+        "finish_reason": "MAX_TOKENS"
+    })
+    
+    advisor_res = mock_adapter_trunc.consult_advisor([{"role": "user", "content": "hello"}])
+    assert advisor_res["stop_reason"] == "max_tokens"
+    assert "truncated" in advisor_res["output"]
+

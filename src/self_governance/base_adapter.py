@@ -51,3 +51,8 @@ class BaseExecutionAdapter(ABC):
     ) -> Dict[str, Any]:
         """Generate/update docstrings, changelogs, or README files."""
         pass
+
+    @abstractmethod
+    def consult_advisor(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Consult a higher-intelligence advisor model with the conversation history."""
+        pass

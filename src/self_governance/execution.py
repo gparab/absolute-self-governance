@@ -62,6 +62,13 @@ class MockExecutionAdapter(BaseExecutionAdapter):
             "output": "API references and docstrings updated.",
         }
 
+    def consult_advisor(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return {
+            "status": "completed",
+            "output": "Mock Advisor Response: Recommended path is approved.",
+            "stop_reason": "end_turn"
+        }
+
 
 def dispatch_swarm_execution(
     agents: List[Agent],
