@@ -211,27 +211,25 @@ magical-meitner/
 
 This project requires **Python 3.13+**.
 
-#### One-Liner Installation (Recommended)
-You can install `self-governance` globally in an isolated environment and link it to your PATH with a single command:
+#### Via PyPI (Recommended)
+Install the `self-governance` CLI globally in an isolated environment:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gparab/absolute-self-governance/master/install.sh | bash
+pipx install absolute-self-governance
+# or
+uv tool install absolute-self-governance
 ```
 
-#### Via `pipx` (Alternative global install)
+#### Server image
+The webhook/server tier is published as a container image on every release:
 ```bash
-pipx install git+https://github.com/gparab/absolute-self-governance.git
+docker pull ghcr.io/gparab/absolute-self-governance:latest
 ```
 
-#### Standard Installation (Local Development)
-To install the package in your current environment:
+#### From source (development)
 ```bash
-pip install .
-```
-
-#### Using `uv` (Recommended for developers)
-If you have `uv` installed, you can sync and install in editable mode:
-```bash
-uv pip install -e .
+git clone https://github.com/gparab/absolute-self-governance.git
+cd absolute-self-governance
+uv sync
 ```
 
 

@@ -500,7 +500,10 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "/work",
                 "--entrypoint",
                 "pytest",
-                "self-governance-image:latest",
+                os.getenv(
+                    "ASG_SANDBOX_IMAGE",
+                    "ghcr.io/gparab/absolute-self-governance:latest",
+                ),
             ]
             if test_target:
                 docker_cmd.append(test_target)

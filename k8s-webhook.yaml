@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: webhook
-        image: self-governance-image:latest
+        image: ghcr.io/gparab/absolute-self-governance:latest
         command: ["uvicorn", "self_governance.github_app:app", "--host", "0.0.0.0", "--port", "8000"]
         ports:
         - containerPort: 8000
