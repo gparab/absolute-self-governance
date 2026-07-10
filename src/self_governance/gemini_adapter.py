@@ -16,7 +16,7 @@ logger = logging.getLogger("self_governance.gemini_adapter")
 
 def call_gemini_with_metadata(
     prompt: str,
-    api_key: str,
+    api_key: Optional[str],
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
@@ -33,10 +33,10 @@ def call_gemini_with_metadata(
     model_name = model or "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
-    data = {"contents": [{"parts": [{"text": prompt}]}]}
+    data: Dict[str, Any] = {"contents": [{"parts": [{"text": prompt}]}]}
 
     if response_mime_type or response_schema or max_output_tokens or temperature is not None:
-        gen_config = {}
+        gen_config: Dict[str, Any] = {}
         if response_mime_type:
             gen_config["responseMimeType"] = response_mime_type
         if response_schema:
@@ -114,7 +114,7 @@ def call_gemini_with_metadata(
 
 def call_gemini(
     prompt: str,
-    api_key: str,
+    api_key: Optional[str],
     response_schema: Optional[Dict[str, Any]] = None,
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
@@ -140,7 +140,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
     def __init__(
         self,
-        api_key: str = None,
+        api_key: Optional[str] = None,
         model_default: Optional[str] = None,
         model_development: Optional[str] = None,
         model_review: Optional[str] = None,
@@ -228,8 +228,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         )
                     except TypeError:
                         res = call_gemini_with_metadata(prompt, self.api_key)
-            prompt_t = res.get("prompt_tokens", 0)
-            completion_t = res.get("completion_tokens", 0)
+            prompt_t = int(res.get("prompt_tokens", 0) or 0)
+            completion_t = int(res.get("completion_tokens", 0) or 0)
             self.prompt_tokens += prompt_t
             self.completion_tokens += completion_t
 

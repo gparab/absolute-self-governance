@@ -46,18 +46,6 @@ dev = [
 [tool.mypy]
 ignore_missing_imports = true
 
-# Gradual typing: these modules predate type checking and are suppressed
-# individually. Fix a module, delete it from this list — never re-widen.
-[[tool.mypy.overrides]]
-module = [
-    "self_governance.benchmark",
-    "self_governance.db",
-    "self_governance.gemini_adapter",
-    "self_governance.github_app",
-    "self_governance.models",
-]
-ignore_errors = true
-
 [tool.coverage.run]
 omit = [
     "src/self_governance/load_tester.py",

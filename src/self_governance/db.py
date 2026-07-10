@@ -11,7 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Text,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
 
 if os.getenv("TESTING") == "True":
     import tempfile
@@ -28,7 +28,10 @@ else:
         DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10
     )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class Tenant(Base):

@@ -180,15 +180,18 @@ async def github_webhook(
     if event == "issues":
         action = payload.get("action")
         if action == "opened":
+            # tenant.id is a SQLAlchemy Column[str] attribute; bind it once as
+            # a plain str for every downstream call that expects one.
+            tenant_id_str = str(tenant.id)
             with tracer.start_as_current_span("process_issue_opened") as span:
-                span.set_attribute("tenant_id", tenant.id)
+                span.set_attribute("tenant_id", tenant_id_str)
                 issue = payload.get("issue", {})
                 title = issue.get("title", "")
                 body = issue.get("body", "")
                 logger.info(
                     "Processing new GitHub issue: %s",
                     title,
-                    extra=_log_ctx(tenant_id=tenant.id, event_type=event),
+                    extra=_log_ctx(tenant_id=tenant_id_str, event_type=event),
                 )
 
                 # Analyze task complexity based on simple keyword heuristics
@@ -212,7 +215,7 @@ async def github_webhook(
                     res = nudger.trigger_succession(
                         f"status: COMPLETED\ncandidates: {candidates}",
                         adapter=adapter,
-                        tenant_id=tenant.id,
+                        tenant_id=tenant_id_str,
                     )
                 except Exception:
                     # LLM spend already happened; record it before propagating
@@ -222,7 +225,7 @@ async def github_webhook(
                     )
                     if adapter.prompt_tokens or adapter.completion_tokens:
                         record_usage(
-                            tenant_id=tenant.id,
+                            tenant_id=tenant_id_str,
                             prompt_tokens=adapter.prompt_tokens,
                             completion_tokens=adapter.completion_tokens,
                             cost_usd=cost,
@@ -234,7 +237,7 @@ async def github_webhook(
                     "Succession session completed: %s",
                     ", ".join(candidates),
                     extra=_log_ctx(
-                        tenant_id=tenant.id,
+                        tenant_id=tenant_id_str,
                         event_type=event,
                         duration_ms=(time.monotonic() - succession_start) * 1000,
                     ),
@@ -248,7 +251,7 @@ async def github_webhook(
 
                 # Log succession session to database
                 sess = SuccessionSession(
-                    tenant_id=tenant.id,
+                    tenant_id=tenant_id_str,
                     status="COMPLETED",
                     approved_roster=",".join(candidates),
                     temperature=res.final_temperature
@@ -266,7 +269,7 @@ async def github_webhook(
                     completion_tokens * 0.00000030
                 )
                 record_usage(
-                    tenant_id=tenant.id,
+                    tenant_id=tenant_id_str,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     cost_usd=cost_usd,

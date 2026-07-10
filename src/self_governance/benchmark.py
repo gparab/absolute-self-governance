@@ -2,7 +2,7 @@ import os
 import json
 import time
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from self_governance.models import Agent
 
 logger = logging.getLogger("self_governance.benchmark")
@@ -15,7 +15,7 @@ def load_benchmark_tasks() -> List[Dict[str, Any]]:
         return json.load(f)
 
 
-def run_benchmark(api_key: str = None) -> Dict[str, Any]:
+def run_benchmark(api_key: Optional[str] = None) -> Dict[str, Any]:
     """Runs the diagnostic code challenges under baseline and ASG modes."""
     tasks = load_benchmark_tasks()
     results = {}
@@ -39,7 +39,7 @@ def run_benchmark(api_key: str = None) -> Dict[str, Any]:
     return results
 
 
-def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+def run_baseline_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
     """Simulates a baseline run with direct, single-step generation."""
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     from self_governance.metrics import ASG_PIPELINE_LATENCY
@@ -87,7 +87,7 @@ def run_baseline_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     }
 
 
-def run_asg_mode(task: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+def run_asg_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
     """Simulates the ASG run with consensus deliberation, swarm sizing, and multi-agent pipeline."""
     from self_governance.consensus import run_consensus
     from self_governance.dimensioning import dimension_swarm

@@ -50,7 +50,12 @@ class Agent(BaseModel):
             ("capabilities", self.capabilities),
         ]
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[str]:  # type: ignore[override]
+        # Deliberately dict-like (iterates keys, like a real Mapping), not
+        # pydantic.BaseModel's own __iter__ (which yields (key, value) pairs
+        # for internal dict(model) support). Locked in by
+        # tests/test_coverage_boost.py's list(agent) == [...] assertion —
+        # changing this would be a real behavior change, not a type fix.
         return iter(self.keys())
 
     def __len__(self) -> int:
@@ -112,7 +117,12 @@ class SwarmConfig(BaseModel):
     def items(self) -> List[Tuple[str, Any]]:
         return [("swarm", self.swarm)] if hasattr(self, "swarm") else []
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[str]:  # type: ignore[override]
+        # Deliberately dict-like (iterates keys, like a real Mapping), not
+        # pydantic.BaseModel's own __iter__ (which yields (key, value) pairs
+        # for internal dict(model) support). Locked in by
+        # tests/test_coverage_boost.py's list(agent) == [...] assertion —
+        # changing this would be a real behavior change, not a type fix.
         return iter(self.keys())
 
     def __len__(self) -> int:
