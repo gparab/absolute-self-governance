@@ -98,53 +98,26 @@ def test_billing_record_usage():
     db.close()
 
 
-def test_dashboard_renders_tenant_data():
+def test_status_renders_tenant_data():
     client = TestClient(app)
 
-    # Verify Tenant A's dashboard
+    # Verify Tenant A's status
     response_a = client.get(
-        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+        "/status", headers={"Authorization": "Bearer tenant_tenantA_key"}
     )
     assert response_a.status_code == 200
-    assert "Tenant Context: tenantA" in response_a.text
-    assert "cus_alpha123" in response_a.text
+    data_a = response_a.json()
+    assert data_a["tenant_id"] == "tenantA"
+    assert data_a["stripe_customer_id"] == "cus_alpha123"
 
-    # Verify Tenant B's dashboard
+    # Verify Tenant B's status
     response_b = client.get(
-        "/dashboard", headers={"Authorization": "Bearer tenant_tenantB_key"}
+        "/status", headers={"Authorization": "Bearer tenant_tenantB_key"}
     )
     assert response_b.status_code == 200
-    assert "Tenant Context: tenantB" in response_b.text
-    assert "cus_beta456" in response_b.text
-
-
-def test_dashboard_redesign_elements():
-    client = TestClient(app)
-    response = client.get(
-        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
-    )
-    assert response.status_code == 200
-
-    # 1. Fonts Outfit and Inter
-    assert "family=Outfit" in response.text
-    assert "family=Inter" in response.text
-
-    # 2. Theme toggle controls
-    assert "theme-toggle-container" in response.text
-    assert "data-theme-val=\"light\"" in response.text
-    assert "data-theme-val=\"dark\"" in response.text
-    assert "data-theme-val=\"system\"" in response.text
-
-    # 3. Transitions and CSS variables
-    assert "--transition-normal" in response.text
-    assert "transition:" in response.text
-
-    # 4. 2-column layout structure
-    assert "<main>" in response.text
-    assert "</main>" in response.text
-    assert "<aside" in response.text
-    assert "</aside>" in response.text
-
+    data_b = response_b.json()
+    assert data_b["tenant_id"] == "tenantB"
+    assert data_b["stripe_customer_id"] == "cus_beta456"
 
 
 def test_webhook_adds_db_records(monkeypatch):
@@ -203,10 +176,10 @@ def test_create_tenant_endpoint():
     api_key = data["api_key"]
 
     response_dash = client.get(
-        "/dashboard", headers={"Authorization": f"Bearer {api_key}"}
+        "/status", headers={"Authorization": f"Bearer {api_key}"}
     )
     assert response_dash.status_code == 200
-    assert f"Tenant Context: {tenant_id}" in response_dash.text
+    assert response_dash.json()["tenant_id"] == tenant_id
 
 
 def test_rate_limiting_enforcement():
@@ -226,7 +199,7 @@ def test_rate_limiting_enforcement():
 
     client = TestClient(app)
     response = client.get(
-        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+        "/status", headers={"Authorization": "Bearer tenant_tenantA_key"}
     )
     assert response.status_code == 429
     assert "Rate limit exceeded" in response.json()["detail"]

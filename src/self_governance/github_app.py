@@ -5,7 +5,7 @@ import logging
 import secrets
 from pydantic import BaseModel
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from self_governance.nudger import ContinuousNudger
@@ -39,55 +39,20 @@ def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def get_dashboard(
+@app.get("/status")
+def get_status(
     tenant: Tenant = Depends(rate_limit_tenant), db: Session = Depends(get_db)
 ):
-    sessions = (
-        db.query(SuccessionSession)
-        .filter(SuccessionSession.tenant_id == tenant.id)
-        .order_by(SuccessionSession.id.desc())
-        .all()
-    )
     usages = db.query(TokenUsage).filter(TokenUsage.tenant_id == tenant.id).all()
-
     total_cost = sum(u.cost_usd for u in usages)
     total_tokens = sum(u.prompt_tokens + u.completion_tokens for u in usages)
-
-    template_path = os.path.join(
-        os.path.dirname(__file__), "templates", "dashboard.html"
-    )
-    with open(template_path, "r", encoding="utf-8") as f:
-        html = f.read()
-
-    rows_html = ""
-    for s in sessions:
-        status_class = (
-            "status-completed" if s.status == "COMPLETED" else "status-pending"
-        )
-        rows_html += f"""
-        <tr>
-            <td>#{s.id}</td>
-            <td>{s.created_at.strftime("%Y-%m-%d %H:%M:%S")}</td>
-            <td>
-                <span class="session-status {status_class}">
-                    {s.status}
-                </span>
-            </td>
-            <td>{s.approved_roster or "N/A"}</td>
-            <td>{s.temperature} / {s.threshold}</td>
-        </tr>
-        """
-    if not sessions:
-        rows_html = """<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No sessions recorded.</td></tr>"""
-
-    html = html.replace("{{ tenant_id }}", tenant.id)
-    html = html.replace("{{ tenant_stripe_id }}", tenant.stripe_customer_id or "N/A")
-    html = html.replace("{{ total_cost }}", f"{total_cost:.6f}")
-    html = html.replace("{{ total_tokens }}", str(total_tokens))
-    html = html.replace("<!-- SESSION_ROWS -->", rows_html)
-
-    return HTMLResponse(content=html)
+    return {
+        "status": "ok",
+        "tenant_id": tenant.id,
+        "stripe_customer_id": tenant.stripe_customer_id or "N/A",
+        "total_cost": total_cost,
+        "total_tokens": total_tokens,
+    }
 
 
 class TenantCreateRequest(BaseModel):

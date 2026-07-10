@@ -137,7 +137,7 @@ def test_webhook_concurrent_load():
 
     def worker():
         response = client.get(
-            "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+            "/status", headers={"Authorization": "Bearer tenant_tenantA_key"}
         )
         results.append(response.status_code)
 
