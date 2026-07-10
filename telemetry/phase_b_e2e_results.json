@@ -1,0 +1,11 @@
+{
+  "webhook_status": 200,
+  "note": "client timed out at 600s; server completed and persisted results",
+  "gemini_quota": "free tier: 20 requests/day \u2014 exhausted mid-run",
+  "graceful_degradation": "consensus completed via API-failure rejection scoring; no crash, no fabricated approval",
+  "usage_row_persisted": {
+    "rows": 1,
+    "total_tokens": 1202,
+    "cost_usd": 0.00015315
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "roster": [
+    "backend_engineer",
+    "security_auditor",
+    "test_engineer",
+    "doc_writer"
+  ],
+  "approved_roster": [
+    "backend_engineer",
+    "security_auditor",
+    "test_engineer"
+  ],
+  "final_temperature": 1.4000000000000004,
+  "final_threshold": 7.0,
+  "prompt_tokens": 6929,
+  "completion_tokens": 1784,
+  "cost_usd": 0.001055,
+  "wall_clock_seconds": 109.4
+}

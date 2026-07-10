@@ -1,0 +1,21 @@
+{
+  "tenants_without_admin_key": 401,
+  "tenants_with_admin_key": 200,
+  "webhook_unsigned": 401,
+  "webhook_bad_signature": 401,
+  "webhook_signed_ping": 200,
+  "status_no_auth": 401,
+  "status_with_auth": 200,
+  "webhook_pr_merged": 200,
+  "ping_latency_ms": {
+    "n": 90,
+    "p50": 3.8,
+    "p90": 4.3,
+    "p99": 5.2
+  },
+  "rate_limit_130_concurrent": {
+    "ok_200": 100,
+    "limited_429": 30,
+    "other": 0
+  }
+}

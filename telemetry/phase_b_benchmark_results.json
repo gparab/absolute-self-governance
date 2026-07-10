@@ -1,0 +1,116 @@
+{
+  "runs": 3,
+  "model": "gemini-2.5-flash",
+  "aggregate": {
+    "task_secure_reader": {
+      "baseline": {
+        "pass_rate": "3/3",
+        "mean_latency_sec": 17.8,
+        "mean_cost_usd": 0.000254
+      },
+      "asg": {
+        "pass_rate": "3/3",
+        "mean_latency_sec": 52.6,
+        "mean_cost_usd": 0.00098
+      }
+    },
+    "task_thread_safe_cache": {
+      "baseline": {
+        "pass_rate": "1/3",
+        "mean_latency_sec": 9.1,
+        "mean_cost_usd": 0.000158
+      },
+      "asg": {
+        "pass_rate": "2/3",
+        "mean_latency_sec": 42.0,
+        "mean_cost_usd": 0.000948
+      }
+    }
+  },
+  "raw_runs": [
+    {
+      "task_secure_reader": {
+        "name": "Secure File Reader",
+        "baseline": {
+          "passed": true,
+          "latency_sec": 9.24,
+          "estimated_cost_usd": 0.000207
+        },
+        "asg": {
+          "passed": true,
+          "latency_sec": 58.21,
+          "estimated_cost_usd": 0.001062
+        }
+      },
+      "task_thread_safe_cache": {
+        "name": "Thread Safe Cache",
+        "baseline": {
+          "passed": false,
+          "latency_sec": 9.32,
+          "estimated_cost_usd": 0.000189
+        },
+        "asg": {
+          "passed": true,
+          "latency_sec": 39.06,
+          "estimated_cost_usd": 0.000779
+        }
+      }
+    },
+    {
+      "task_secure_reader": {
+        "name": "Secure File Reader",
+        "baseline": {
+          "passed": true,
+          "latency_sec": 11.94,
+          "estimated_cost_usd": 0.000238
+        },
+        "asg": {
+          "passed": true,
+          "latency_sec": 45.19,
+          "estimated_cost_usd": 0.000911
+        }
+      },
+      "task_thread_safe_cache": {
+        "name": "Thread Safe Cache",
+        "baseline": {
+          "passed": false,
+          "latency_sec": 9.5,
+          "estimated_cost_usd": 0.000203
+        },
+        "asg": {
+          "passed": true,
+          "latency_sec": 36.04,
+          "estimated_cost_usd": 0.000731
+        }
+      }
+    },
+    {
+      "task_secure_reader": {
+        "name": "Secure File Reader",
+        "baseline": {
+          "passed": true,
+          "latency_sec": 32.32,
+          "estimated_cost_usd": 0.000318
+        },
+        "asg": {
+          "passed": true,
+          "latency_sec": 54.52,
+          "estimated_cost_usd": 0.000966
+        }
+      },
+      "task_thread_safe_cache": {
+        "name": "Thread Safe Cache",
+        "baseline": {
+          "passed": true,
+          "latency_sec": 8.39,
+          "estimated_cost_usd": 8.2e-05
+        },
+        "asg": {
+          "passed": false,
+          "latency_sec": 50.89,
+          "estimated_cost_usd": 0.001334
+        }
+      }
+    }
+  ]
+}
