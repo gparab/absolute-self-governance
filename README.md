@@ -1,6 +1,16 @@
 # Absolute Self-Governance in Multi-Agent Systems
 
+[![PyPI](https://img.shields.io/pypi/v/absolute-self-governance)](https://pypi.org/project/absolute-self-governance/)
+[![CI](https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml/badge.svg)](https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/absolute-self-governance)](https://pypi.org/project/absolute-self-governance/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 This project implements the theoretical framework for **Absolute Self-Governance in Multi-Agent Systems**, a decentralized protocol that enables autonomous agent swarms to organize, dimension themselves, reach consensus on leadership/rosters, and transition between software development life cycle (SDLC) states without any human or centralized orchestrator intervention.
+
+```bash
+pipx install absolute-self-governance
+self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
+```
 
 ---
 
@@ -20,8 +30,9 @@ This project implements the theoretical framework for **Absolute Self-Governance
     - [CLI / Programmatic Execution](#cli--programmatic-execution)
     - [Running the Test Suite](#running-the-test-suite)
 6. [IDE Agent Runner Integration](#6-ide-agent-runner-integration)
-7. [Contributing](#7-contributing)
-8. [License](#8-license)
+7. [Known Limitations & Security Threat Model](#7-known-limitations--security-threat-model)
+8. [Contributing](#8-contributing)
+9. [License](#9-license)
 
 
 
@@ -184,23 +195,38 @@ A legacy fallback parser handles unstructured text/markdown fence blocks in mock
 ## 4. Project Structure
 
 ```
-magical-meitner/
+absolute-self-governance/
 ├── src/
 │   └── self_governance/
-│       ├── __init__.py      # Package entry point
-│       ├── consensus.py     # TETD consensus simulation
-│       ├── dimensioning.py   # SDLC Dimensioning & LazyList
-│       ├── models.py        # Appendix D JSON structures (Agent, SwarmConfig)
-│       └── nudger.py        # ContinuousNudger state machine
-├── tests/
-│   ├── test_consensus.py    # Unit tests for TETD consensus
-│   ├── test_dimensioning.py # Unit tests for SDLC Dimensioning
-│   ├── test_nudger.py       # Unit tests for ContinuousNudger
-│   ├── test_stress.py       # Load & concurrency tests
-│   └── test_e2e.py          # End-to-end integration tests (Tiers 1-4)
-├── pyproject.toml           # Standard Python package metadata
-├── uv.lock                  # Lockfile for dependency management
-└── README.md                # This documentation file
+│       ├── consensus.py       # TETD consensus engine
+│       ├── dimensioning.py    # SDLC dimensioning & LazyList scaling
+│       ├── nudger.py          # ContinuousNudger state machine (file-bus watcher)
+│       ├── models.py          # Pydantic schemas (Agent, SwarmConfig)
+│       ├── execution.py       # Swarm execution pipeline
+│       ├── base_adapter.py    # Execution adapter interface
+│       ├── gemini_adapter.py  # Gemini backend, sandboxed tooling, path guards
+│       ├── agency_agents_adapter.py  # Personas & capability prompts
+│       ├── github_app.py      # FastAPI webhook app (HMAC, multi-tenant)
+│       ├── auth.py            # API-key auth & per-tenant rate limiting
+│       ├── db.py              # SQLAlchemy models (SQLite/PostgreSQL)
+│       ├── billing.py         # Per-tenant token-usage metering
+│       ├── config.py          # Validated YAML configuration
+│       ├── learning.py        # Adaptive matrix tuning feedback loop
+│       ├── benchmark.py       # Baseline vs ASG diagnostic benchmark
+│       ├── devserver.py       # `dev` mode local monitoring server
+│       ├── dashboard.py       # Terminal stats dashboard
+│       ├── metrics.py         # Prometheus metrics
+│       ├── tracing.py         # OpenTelemetry (OTLP or console)
+│       ├── telemetry.py       # Correlation IDs & structured logging
+│       └── cli.py             # CLI subcommands
+├── tests/                     # 155 tests (unit, e2e, stress, multi-tenancy)
+├── telemetry/                 # Real-world run harnesses & raw results
+├── alembic/                   # Database migrations
+├── Dockerfile                 # Multi-stage image (non-root)
+├── k8s-webhook.yaml           # Deployment, Service, HPA
+├── config.yaml                # Default orchestrator configuration
+├── pyproject.toml             # Package metadata
+└── uv.lock                    # Dependency lockfile
 ```
 
 ---
