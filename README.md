@@ -5,18 +5,20 @@
 [![Python](https://img.shields.io/pypi/pyversions/absolute-self-governance)](https://pypi.org/project/absolute-self-governance/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-This project implements the theoretical framework for **Absolute Self-Governance in Multi-Agent Systems**, a decentralized protocol that enables autonomous agent swarms to organize, dimension themselves, reach consensus on leadership/rosters, and transition between software development life cycle (SDLC) states without any human or centralized orchestrator intervention.
+An orchestration layer for AI-assisted development: a council of role-based agents votes on which roles a task actually needs — via an adaptive consensus algorithm (TETD) rather than a fixed team — and team size scales with measured task complexity instead of staffing every task the same way. The point isn't more agents; it's the *right* number, with the cost of every run visible in real time.
 
 ```bash
 pipx install absolute-self-governance
 self-governance demo         # no API key, no cost, no setup — see it work in 30 seconds
 ```
 
-`demo` computes real team-sizing math for a trivial task vs. a complex one (1 agent vs. 9, via the same `dimension_swarm` logic production traffic uses) and opens a live dashboard — zero API key, zero spend. Once you have a Gemini key:
+`demo` computes real team-sizing math for a trivial task vs. a complex one (1 agent vs. 9, via the same `dimension_swarm` logic production traffic uses) and opens a live dashboard showing cost update in real time — zero API key, zero spend. Once you have a Gemini key:
 
 ```bash
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
+
+📄 **[Read the paper](paper.pdf)** — including a live benchmark (§4.7) that didn't confirm our own hypothesis about multi-agent overhead paying off on harder tasks. We scaled it up, it didn't hold, and we reported the real number instead of the flattering one.
 
 ---
 
