@@ -511,18 +511,7 @@ See [RELATED_PROJECTS.md](RELATED_PROJECTS.md) for how this compares to MetaGPT,
 
 ## 8. Contributing
 
-We welcome contributions to absolute self-governance orchestration algorithms! To get started:
-
-1. **Fork the Repository**: Create your own fork and clone it locally.
-2. **Setup Development Environment**: Sync dependencies using `uv`:
-   ```bash
-   uv sync
-   ```
-3. **Write Tests**: Ensure any changes or bug fixes are covered by appropriate unit or integration tests under the `tests/` directory.
-4. **Verify Quality**: Run the test suite to ensure a 100% pass rate:
-   ```bash
-   uv run pytest
-   ```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the pre-PR checklist (tests, ruff, mypy — all enforced in CI), and labeled starter issues.
 
 ---
 
