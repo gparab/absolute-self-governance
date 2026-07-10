@@ -118,6 +118,35 @@ def test_dashboard_renders_tenant_data():
     assert "cus_beta456" in response_b.text
 
 
+def test_dashboard_redesign_elements():
+    client = TestClient(app)
+    response = client.get(
+        "/dashboard", headers={"Authorization": "Bearer tenant_tenantA_key"}
+    )
+    assert response.status_code == 200
+
+    # 1. Fonts Outfit and Inter
+    assert "family=Outfit" in response.text
+    assert "family=Inter" in response.text
+
+    # 2. Theme toggle controls
+    assert "theme-toggle-container" in response.text
+    assert "data-theme-val=\"light\"" in response.text
+    assert "data-theme-val=\"dark\"" in response.text
+    assert "data-theme-val=\"system\"" in response.text
+
+    # 3. Transitions and CSS variables
+    assert "--transition-normal" in response.text
+    assert "transition:" in response.text
+
+    # 4. 2-column layout structure
+    assert "<main>" in response.text
+    assert "</main>" in response.text
+    assert "<aside" in response.text
+    assert "</aside>" in response.text
+
+
+
 def test_webhook_adds_db_records(monkeypatch):
     async def mock_verify(req):
         return None
