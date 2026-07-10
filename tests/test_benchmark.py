@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from unittest.mock import patch
@@ -209,6 +210,44 @@ def test_run_benchmark_parallel_resume_skips_completed_units(tmp_path, monkeypat
     assert len(results["task_tiny"]["baseline"]) == 2
     assert len(results["task_tiny"]["asg"]) == 2
     assert len(checkpoint.read_text().strip().splitlines()) == 4
+
+
+def test_run_benchmark_parallel_resume_retries_error_outcomes(tmp_path, monkeypatch):
+    """An outcome with an 'error' (e.g. a quota 429 the adapter's own
+    retries couldn't outlast) must NOT be treated as done on resume --
+    otherwise a quota cutoff mid-sweep would permanently and silently
+    drop every unit it failed, rather than retrying them once the quota
+    resets."""
+    checkpoint = tmp_path / "checkpoint.jsonl"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "task_id": "task_tiny",
+                "mode": "baseline",
+                "rep": 0,
+                "result": {
+                    "passed": False,
+                    "latency_sec": 0.0,
+                    "estimated_cost_usd": 0.0,
+                    "error": "quota exceeded",
+                },
+            }
+        )
+        + "\n"
+    )
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+    )
+
+    seen = []
+    run_benchmark_parallel(
+        api_key=None, reps=1, workers=2, resume_path=str(checkpoint), on_result=seen.append
+    )
+    ran_keys = {(o["task_id"], o["mode"], o["rep"]) for o in seen}
+    assert ("task_tiny", "baseline", 0) in ran_keys, (
+        "a previously-errored unit must be retried, not skipped as done"
+    )
 
 
 def test_run_benchmark_parallel_workers_clamped():

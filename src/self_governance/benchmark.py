@@ -240,7 +240,11 @@ def run_benchmark_parallel(
     runs (e.g. a free-tier daily quota cutting a run off mid-sweep): each
     outcome is appended to this file as JSONL as it completes, and any
     (task_id, mode, rep) already present there is skipped on the next
-    call instead of re-run.
+    call instead of re-run. Outcomes with an "error" (e.g. a 429 that
+    outlasted the adapter's own retries) are NOT treated as done -- a
+    quota cutoff can fail dozens of queued units in a row, and marking
+    those permanently "complete" would silently and irrecoverably drop
+    them from every future resume.
     """
     workers = max(1, min(workers, 16))
     tasks = load_benchmark_tasks()
@@ -251,6 +255,8 @@ def run_benchmark_parallel(
     }
     if resume_path:
         for outcome in _load_resume_outcomes(resume_path):
+            if "error" in outcome["result"]:
+                continue
             done_keys.add((outcome["task_id"], outcome["mode"], outcome["rep"]))
             results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
 
@@ -263,6 +269,7 @@ def run_benchmark_parallel(
     ]
 
     checkpoint_f = open(resume_path, "a", encoding="utf-8") if resume_path else None
+    consecutive_errors = 0
     try:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [
@@ -277,6 +284,19 @@ def run_benchmark_parallel(
                     checkpoint_f.flush()
                 if on_result is not None:
                     on_result(outcome)
+                # Once every worker in flight is failing (e.g. a daily quota
+                # exhausted), the rest of the queue is doomed too -- stop
+                # burning wall-clock on retries that will only produce more
+                # of the same error, and let the next scheduled attempt
+                # (after quota resets) pick up the remaining units instead.
+                if "error" in outcome["result"]:
+                    consecutive_errors += 1
+                    if consecutive_errors >= workers * 2:
+                        for f in futures:
+                            f.cancel()
+                        break
+                else:
+                    consecutive_errors = 0
     finally:
         if checkpoint_f is not None:
             checkpoint_f.close()
