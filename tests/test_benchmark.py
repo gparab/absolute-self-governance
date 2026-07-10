@@ -1,3 +1,4 @@
+import os
 import sys
 from unittest.mock import patch
 from self_governance.benchmark import (
@@ -74,13 +75,46 @@ def test_cli_benchmark(monkeypatch, capsys):
     assert "Thread Safe Cache" in captured.out
 
 
-def test_run_benchmark_parallel_isolates_concurrent_reps(monkeypatch):
-    """Each (task, mode, rep) unit must run in its own process/tempdir --
-    if isolation were broken, concurrent reps of the same task would race
-    on the same target_file/bench_test_*.py filenames and corrupt each
-    other's results. Verify every requested unit comes back exactly once,
-    with no crashes, using a single tiny task to keep this fast (no Docker
-    spin-up storm across all 6 real tasks)."""
+def test_run_one_isolated_uses_a_distinct_tempdir_per_call(monkeypatch):
+    """The actual isolation mechanism, tested directly and deterministically:
+    each call to _run_one_isolated chdirs into its own fresh tempdir and
+    restores the original cwd after. This is what prevents concurrent reps
+    from colliding on identical target_file/bench_test_*.py filenames --
+    tested here without going through Docker or a real process pool, since
+    neither is needed to verify this specific guarantee, and both would
+    make the test dependent on sandbox/network availability."""
+    import self_governance.benchmark as bm
+
+    seen_cwds = []
+
+    def fake_mode_fn(task, api_key):
+        seen_cwds.append(os.getcwd())
+        return {"passed": True, "latency_sec": 0.0, "estimated_cost_usd": 0.0}
+
+    monkeypatch.setattr(bm, "run_baseline_mode", fake_mode_fn)
+    start_cwd = os.getcwd()
+
+    bm._run_one_isolated(_TINY_TASK, "baseline", 0, None)
+    bm._run_one_isolated(_TINY_TASK, "baseline", 1, None)
+
+    assert len(seen_cwds) == 2
+    assert seen_cwds[0] != seen_cwds[1], "two calls reused the same tempdir"
+    assert start_cwd not in seen_cwds
+    assert os.getcwd() == start_cwd, "cwd was not restored after each call"
+    # Cleaned up afterward, not left behind on every sweep
+    assert not os.path.exists(seen_cwds[0])
+    assert not os.path.exists(seen_cwds[1])
+
+
+def test_run_benchmark_parallel_dispatches_every_unit_exactly_once(monkeypatch):
+    """Structural correctness of the concurrent dispatch, independent of
+    whatever the sandboxed test outcome happens to be in this environment
+    (Docker/network availability varies between local and CI, so pass/fail
+    of the sandboxed test itself isn't a portable thing to assert on here --
+    see test_run_one_isolated_uses_a_distinct_tempdir_per_call for the
+    actual isolation-mechanism proof). This test proves the concurrent
+    fan-out/fan-in bookkeeping is correct: exactly the requested units run,
+    each exactly once, via a real ProcessPoolExecutor."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
         "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
@@ -103,14 +137,9 @@ def test_run_benchmark_parallel_isolates_concurrent_reps(monkeypatch):
         ("task_tiny", "asg", 0),
         ("task_tiny", "asg", 1),
     }
-    # The tiny task's test never imports from the (never-written, no-key)
-    # target module, so every rep should deterministically pass -- if
-    # concurrent reps were racing on shared filenames, this would be flaky
-    # instead of uniformly True across all 4 units.
     for mode_results in (results["task_tiny"]["baseline"], results["task_tiny"]["asg"]):
         for r in mode_results:
-            assert r["passed"] is True
-            assert "error" not in r  # no Python exception inside the worker
+            assert "error" not in r, f"worker raised an unexpected exception: {r}"
 
 
 def test_run_one_isolated_captures_worker_exception(monkeypatch):
