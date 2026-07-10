@@ -202,7 +202,6 @@ absolute-self-governance/
 │       ├── dimensioning.py    # SDLC dimensioning & LazyList scaling
 │       ├── nudger.py          # ContinuousNudger state machine (file-bus watcher)
 │       ├── models.py          # Pydantic schemas (Agent, SwarmConfig)
-│       ├── execution.py       # Swarm execution pipeline
 │       ├── base_adapter.py    # Execution adapter interface
 │       ├── gemini_adapter.py  # Gemini backend, sandboxed tooling, path guards
 │       ├── agency_agents_adapter.py  # Personas & capability prompts
@@ -219,7 +218,7 @@ absolute-self-governance/
 │       ├── tracing.py         # OpenTelemetry (OTLP or console)
 │       ├── telemetry.py       # Correlation IDs & structured logging
 │       └── cli.py             # CLI subcommands
-├── tests/                     # 155 tests (unit, e2e, stress, multi-tenancy)
+├── tests/                     # 152 tests (unit, e2e, stress, multi-tenancy)
 ├── telemetry/                 # Real-world run harnesses & raw results
 ├── alembic/                   # Database migrations
 ├── Dockerfile                 # Multi-stage image (non-root)

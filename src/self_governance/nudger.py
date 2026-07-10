@@ -282,7 +282,10 @@ class ContinuousNudger:
             observer.join()
 
     def trigger_succession(
-        self, handoff_content: str, adapter: Optional[Any] = None
+        self,
+        handoff_content: str,
+        adapter: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
     ) -> ConsensusResult:
         """
         Execute SuccessionSession with TETD consensus, append logs, and draft next prompt.
@@ -290,6 +293,10 @@ class ContinuousNudger:
         Args:
             handoff_content: The YAML content from the handoff file.
             adapter: Optional GeminiExecutionAdapter instance.
+            tenant_id: Optional tenant identifier. When provided, prompt/log
+                output is written under working_directory/tenants/<tenant_id>/
+                instead of the bare configured filenames, so concurrent
+                tenants never clobber or read each other's files.
 
         Raises:
             HandoffValueError: If handoff content is malformed or invalid.
@@ -347,7 +354,12 @@ class ContinuousNudger:
         swarm_config = dimension_swarm(req_vector, trans_matrix)
 
         # 4. Serialize config and draft prompt first
-        prompt_path = os.path.join(self.working_directory, self.config.prompt_file)
+        if tenant_id:
+            output_dir = os.path.join(self.working_directory, "tenants", tenant_id)
+            os.makedirs(output_dir, exist_ok=True)
+        else:
+            output_dir = self.working_directory
+        prompt_path = os.path.join(output_dir, self.config.prompt_file)
         tmp_prompt_path = prompt_path + ".tmp"
         with open(tmp_prompt_path, "w", encoding="utf-8") as f:
             f.write("--- Swarm Configuration ---\n")
@@ -357,7 +369,7 @@ class ContinuousNudger:
         os.replace(tmp_prompt_path, prompt_path)
 
         # 5. Append rotation details last (committing step)
-        log_path = os.path.join(self.working_directory, self.config.roster_log_file)
+        log_path = os.path.join(output_dir, self.config.roster_log_file)
         approved_str = ", ".join(approved_roster)
         log_entry = f"Succession Session Completed. Approved Roster: [{approved_str}]\n"
         with open(log_path, "a", encoding="utf-8") as f:

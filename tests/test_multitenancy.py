@@ -203,3 +203,36 @@ def test_rate_limiting_enforcement():
     db.query(RateLimitEntry).filter(RateLimitEntry.tenant_id == "tenantA").delete()
     db.commit()
     db.close()
+
+
+def test_trigger_succession_isolates_tenant_output_files(tmp_path):
+    """Two tenants calling trigger_succession concurrently must not clobber
+    or leak each other's prompt_draft.md / roster_rotation_log.md."""
+    from self_governance.nudger import ContinuousNudger
+
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    nudger.trigger_succession(
+        "status: COMPLETED\ncandidates: [agent_alpha_dev]", tenant_id="tenantA"
+    )
+    nudger.trigger_succession(
+        "status: COMPLETED\ncandidates: [agent_beta_dev]", tenant_id="tenantB"
+    )
+
+    prompt_a = tmp_path / "tenants" / "tenantA" / nudger.config.prompt_file
+    prompt_b = tmp_path / "tenants" / "tenantB" / nudger.config.prompt_file
+    log_a = tmp_path / "tenants" / "tenantA" / nudger.config.roster_log_file
+    log_b = tmp_path / "tenants" / "tenantB" / nudger.config.roster_log_file
+
+    assert prompt_a.exists() and prompt_b.exists()
+    assert log_a.exists() and log_b.exists()
+    assert prompt_a != prompt_b
+
+    assert "agent_alpha_dev" in log_a.read_text()
+    assert "agent_beta_dev" not in log_a.read_text()
+    assert "agent_beta_dev" in log_b.read_text()
+    assert "agent_alpha_dev" not in log_b.read_text()
+
+    # No plain files leaked at the shared working_directory root.
+    assert not (tmp_path / nudger.config.prompt_file).exists()
+    assert not (tmp_path / nudger.config.roster_log_file).exists()

@@ -183,7 +183,9 @@ async def github_webhook(
                 adapter = GeminiExecutionAdapter()
                 try:
                     res = nudger.trigger_succession(
-                        f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter
+                        f"status: COMPLETED\ncandidates: {candidates}",
+                        adapter=adapter,
+                        tenant_id=tenant.id,
                     )
                 except Exception:
                     # LLM spend already happened; record it before propagating

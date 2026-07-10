@@ -285,6 +285,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             f"Implement development changes based on the following plan: {json.dumps(plan)}.\n"
             "Return a JSON object containing an explanation and an array of written_files with their filepath and content."
         )
+        if agents:
+            roles = ", ".join(agent.role for agent in agents)
+            prompt += f"\nAccount for the following role perspectives during implementation: {roles}"
 
         schema = {
             "type": "OBJECT",
@@ -459,6 +462,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Analyze the following linter output and explain key violations to fix: {lint_output}"
+            if agents:
+                roles = ", ".join(agent.role for agent in agents)
+                prompt += f"\nAccount for the following role perspectives: {roles}"
             response_text = self._call_gemini_and_track(prompt, model=self.model_review)
             return {
                 "status": status,
@@ -495,7 +501,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "--tmpfs",
                 "/tmp",  # nosec B108
                 "-v",
-                f"{os.path.abspath('.')}:/work",
+                f"{os.path.abspath('.')}:/work:ro",
                 "-w",
                 "/work",
                 "--entrypoint",
@@ -576,6 +582,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Analyze the following bandit security scan report and highlight critical vulnerability risks: {sec_output}"
+            if agents:
+                roles = ", ".join(agent.role for agent in agents)
+                prompt += f"\nAccount for the following role perspectives: {roles}"
             response_text = self._call_gemini_and_track(
                 prompt, model=self.model_security
             )
