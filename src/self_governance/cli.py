@@ -42,7 +42,21 @@ def main():
     )
 
     # stats subcommand
-    subparsers.add_parser("stats", help="Show the metrics dashboard")
+    parser_stats = subparsers.add_parser("stats", help="Show the metrics dashboard")
+    parser_stats.add_argument(
+        "--watch", action="store_true", help="Repaint the dashboard every 2 seconds"
+    )
+
+    # dev subcommand: nudger + local monitoring server in one command
+    parser_dev = subparsers.add_parser(
+        "dev", help="Watch the current directory and serve a local status page"
+    )
+    parser_dev.add_argument(
+        "--workdir", default=".", help="Working directory (default: '.')"
+    )
+    parser_dev.add_argument(
+        "--port", type=int, default=8642, help="Monitor port (default: 8642)"
+    )
 
     # benchmark subcommand
     subparsers.add_parser(
@@ -58,7 +72,11 @@ def main():
     config = OrchestratorConfig(args.config)
 
     if args.subcommand == "run-nudger":
+        import signal
+
         nudger = ContinuousNudger(working_directory=args.workdir, config=config)
+        # k8s/systemd stop sends SIGTERM: exit cleanly instead of mid-succession
+        signal.signal(signal.SIGTERM, lambda *_: nudger.stop())
         nudger.watch_handoff()
     elif args.subcommand == "trigger-succession":
         with open(args.handoff, "r", encoding="utf-8") as f:
@@ -72,7 +90,40 @@ def main():
         write_swarm_config_to_stream(sys.stdout, swarm_config)
         sys.stdout.write("\n")
     elif args.subcommand == "stats":
-        display_dashboard()
+        if args.watch:
+            import time
+
+            try:
+                while True:
+                    sys.stdout.write("\033[2J\033[H")  # clear screen, home cursor
+                    display_dashboard()
+                    sys.stdout.flush()
+                    time.sleep(2)
+            except KeyboardInterrupt:
+                pass
+        else:
+            display_dashboard()
+    elif args.subcommand == "dev":
+        import signal
+        import threading
+        import uvicorn
+        from self_governance.devserver import dev_app
+
+        # Monitor server on localhost only — it exposes cost/usage data.
+        server = uvicorn.Server(
+            uvicorn.Config(dev_app, host="127.0.0.1", port=args.port, log_level="warning")
+        )
+        threading.Thread(target=server.run, daemon=True).start()
+
+        nudger = ContinuousNudger(working_directory=args.workdir, config=config)
+        signal.signal(signal.SIGTERM, lambda *_: nudger.stop())
+        handoff = config.handoff_file
+        print(f"ASG dev mode: watching {args.workdir}/{handoff}")
+        print(f"Monitor:      http://127.0.0.1:{args.port}/  (Ctrl-C to stop)")
+        try:
+            nudger.watch_handoff()
+        except KeyboardInterrupt:
+            nudger.stop()
     elif args.subcommand == "benchmark":
         from self_governance.benchmark import run_benchmark
 
