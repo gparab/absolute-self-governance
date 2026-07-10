@@ -203,8 +203,12 @@ class ContinuousNudger:
                                 "estimated_cost_usd": len(candidates) * 0.005,
                                 "swarm_counts": swarm_counts,
                             }
-                            with open(dry_run_plan_path, "w", encoding="utf-8") as f:
+                            # Atomic write: a crash mid-write must not leave a
+                            # partial plan that later parses as garbage.
+                            tmp_path = dry_run_plan_path + ".tmp"
+                            with open(tmp_path, "w", encoding="utf-8") as f:
                                 json.dump(plan_info, f, indent=2)
+                            os.replace(tmp_path, dry_run_plan_path)
                             logger.info(
                                 "Dry-run plan created at %s. Awaiting approval.",
                                 dry_run_plan_path,
@@ -257,10 +261,18 @@ class ContinuousNudger:
         observer.start()
 
         try:
+            retry_delay = 0.25
             while not self._stop_event.is_set():
-                # If we had a transient error, retry processing
+                # If we had a transient error, retry processing with backoff —
+                # each retry can re-run a full (paid) consensus, so never hot-loop.
                 if self.has_transient_error:
+                    self._stop_event.wait(retry_delay)
+                    retry_delay = min(60.0, retry_delay * 2)
+                    if self._stop_event.is_set():
+                        break
                     self.process_handoff()
+                else:
+                    retry_delay = 0.25
                 time.sleep(0.05)
         except (KeyboardInterrupt, SystemExit):
             logger.info("Stopping observer due to KeyboardInterrupt/SystemExit")
@@ -336,11 +348,13 @@ class ContinuousNudger:
 
         # 4. Serialize config and draft prompt first
         prompt_path = os.path.join(self.working_directory, self.config.prompt_file)
-        with open(prompt_path, "w", encoding="utf-8") as f:
+        tmp_prompt_path = prompt_path + ".tmp"
+        with open(tmp_prompt_path, "w", encoding="utf-8") as f:
             f.write("--- Swarm Configuration ---\n")
             write_swarm_config_to_stream(f, swarm_config)
             f.write("\n--- End Configuration ---\n")
             f.write("Prompt: Guide the swarm to collaborate on the next phase.\n")
+        os.replace(tmp_prompt_path, prompt_path)
 
         # 5. Append rotation details last (committing step)
         log_path = os.path.join(self.working_directory, self.config.roster_log_file)

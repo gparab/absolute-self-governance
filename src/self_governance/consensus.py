@@ -2,32 +2,11 @@ import os
 import random
 import math
 import json
-import base64
 from typing import List, Optional, Any
 from self_governance.tracing import tracer
 
-
-def _encrypt_reason(reason: str, key: str = "ASG_VOTER_KEY") -> str:
-    """Encrypt reasoning text using simple XOR cipher and base64 encoding."""
-    encoded_bytes = reason.encode("utf-8")
-    key_bytes = key.encode("utf-8")
-    cipher_bytes = bytearray(
-        encoded_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(encoded_bytes))
-    )
-    return base64.b64encode(cipher_bytes).decode("utf-8")
-
-
-def _decrypt_reason(cipher_text: str, key: str = "ASG_VOTER_KEY") -> str:
-    """Decrypt XOR-ciphered base64 text back to plaintext string."""
-    try:
-        cipher_bytes = base64.b64decode(cipher_text.encode("utf-8"))
-        key_bytes = key.encode("utf-8")
-        plain_bytes = bytearray(
-            cipher_bytes[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(cipher_bytes))
-        )
-        return plain_bytes.decode("utf-8")
-    except Exception:
-        return cipher_text
+# Justifications are stored in plaintext. The previous XOR/base64 "encryption"
+# was obfuscation with a hardcoded key — false security worse than none.
 
 
 class ConsensusResult(tuple):
@@ -77,6 +56,7 @@ def run_consensus(
     requirements: Optional[List[float]] = None,
     T_max: float = 2.0,
     model: Optional[str] = None,
+    max_seconds: float = 600.0,
 ) -> ConsensusResult:
     """
     Run an iterative simulation of voting consensus (TETD consensus).
@@ -92,6 +72,8 @@ def run_consensus(
         initial_temp: Initial simulation temperature. Must be non-negative.
         gamma: Temperature increment per iteration. Must be non-negative.
         delta: Threshold decay rate per iteration. Must be positive (greater than 0.0).
+        max_seconds: Wall-clock budget for the whole run; a slow or flaky LLM
+            endpoint returns a best-effort result instead of running for hours.
 
     Returns:
         A ConsensusResult containing:
@@ -108,6 +90,12 @@ def run_consensus(
         raise TypeError("initial_roster must be a list")
     if not all(isinstance(agent, str) for agent in initial_roster):
         raise TypeError("all elements in initial_roster must be strings")
+    # Each iteration makes one paid LLM call per roster member; cap worst-case
+    # spend. Mock (adapter-less) runs stay uncapped — they cost nothing.
+    if adapter is not None and len(initial_roster) > 100:
+        raise ValueError(
+            "initial_roster exceeds the maximum size of 100 agents for LLM-backed consensus"
+        )
     if not isinstance(B, int) or B <= 0:
         raise ValueError("B must be a positive integer")
     if (
@@ -165,9 +153,23 @@ def run_consensus(
             nudge_text = "Please call advisor() before committing to an approach or declaring completion."
 
         justifications = {}
+        scores = {}
         advisor_called = False
+        import time as _time
+
+        deadline = _time.monotonic() + max_seconds
 
         while True:
+            # Wall-clock budget: same best-effort exit as the iteration cap.
+            if _time.monotonic() > deadline and iteration > 1:
+                approved = [a for a, s in scores.items() if s >= tau]
+                if not approved and scores:
+                    approved = [max(scores, key=scores.get)]
+                result = ConsensusResult(approved, temp, tau)
+                if adapter is not None:
+                    result.prompt_tokens = adapter.prompt_tokens
+                    result.completion_tokens = adapter.completion_tokens
+                return result
             ASG_CONSENSUS_ITERATIONS.inc()
             scores = {}
             new_justifications = {}
@@ -176,7 +178,7 @@ def run_consensus(
                 peer_feedback = (
                     "Here is the peer feedback from the previous round of deliberation:\n"
                     + "\n".join(
-                        f"- '{a}' was rated {info['score']}. Peer justification: {_decrypt_reason(info['justification'])}"
+                        f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
                         for a, info in justifications.items()
                     )
                     + "\n\n"
@@ -253,9 +255,13 @@ def run_consensus(
                         response_mime_type="application/json",
                         model=model,
                     )
-                    score = 7.5
-                    justification = "No justification provided."
+                    # An empty response means the API call failed; score it as a
+                    # rejection so an outage can never approve a roster.
+                    score = 1.0
+                    justification = "API call failed; scored as rejection."
                     if res:
+                        score = 7.5
+                        justification = "No justification provided."
                         try:
                             # 1. Parse JSON if structured output works
                             data = json.loads(res)
@@ -289,10 +295,12 @@ def run_consensus(
                         f"Mock justification for {agent} at iteration {iteration}"
                     )
 
+                if not (1.0 <= score <= 10.0):  # also catches NaN
+                    score = 1.0
                 scores[agent] = score
                 new_justifications[agent] = {
                     "score": score,
-                    "justification": _encrypt_reason(justification),
+                    "justification": justification,
                 }
 
             justifications = new_justifications

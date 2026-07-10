@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     create_engine,
     Column,
+    Index,
     Integer,
     String,
     Float,
@@ -19,12 +20,13 @@ if os.getenv("TESTING") == "True":
 else:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///self_governance.db")
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}
-    if DATABASE_URL.startswith("sqlite")
-    else {},
-)
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # pool_pre_ping recovers from stale connections after DB failover/restart.
+    engine = create_engine(
+        DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10
+    )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -35,15 +37,12 @@ class Tenant(Base):
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
     api_key_hash = Column(String, nullable=False)
-    stripe_customer_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    sessions = relationship(
-        "SuccessionSession", back_populates="tenant", cascade="all, delete-orphan"
-    )
-    token_usages = relationship(
-        "TokenUsage", back_populates="tenant", cascade="all, delete-orphan"
-    )
+    # No delete cascades: usage and session history is audit data and must
+    # survive tenant removal (soft-delete tenants instead of dropping rows).
+    sessions = relationship("SuccessionSession", back_populates="tenant")
+    token_usages = relationship("TokenUsage", back_populates="tenant")
 
 
 class SuccessionSession(Base):
@@ -77,6 +76,10 @@ class TokenUsage(Base):
 
     tenant = relationship("Tenant", back_populates="token_usages")
 
+    __table_args__ = (
+        Index("ix_token_usages_tenant_created", "tenant_id", "created_at"),
+    )
+
 
 class RateLimitEntry(Base):
     __tablename__ = "rate_limit_entries"
@@ -91,7 +94,6 @@ def init_db():
 
 
 def get_db():
-    init_db()
     db = SessionLocal()
     try:
         yield db

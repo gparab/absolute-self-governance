@@ -18,14 +18,18 @@ fi
 INSTALL_DIR="${HOME}/.self-governance"
 mkdir -p "${INSTALL_DIR}"
 
-# 3. Clone or pull repository
+# 3. Clone or update repository, pinned to a known ref.
+# Override with ASG_REF=<tag|sha> to install a specific release.
+ASG_REF="${ASG_REF:-v0.1.0}"
+REPO_URL="https://github.com/gparab/absolute-self-governance.git"
 if [ -d "${INSTALL_DIR}/.git" ]; then
-    echo "Updating existing installation in ${INSTALL_DIR}..."
-    git -C "${INSTALL_DIR}" pull origin master
+    echo "Updating existing installation in ${INSTALL_DIR} to ${ASG_REF}..."
+    git -C "${INSTALL_DIR}" fetch --tags origin
 else
     echo "Cloning repository to ${INSTALL_DIR}..."
-    git clone https://github.com/gparab/absolute-self-governance.git "${INSTALL_DIR}"
+    git clone "${REPO_URL}" "${INSTALL_DIR}"
 fi
+git -C "${INSTALL_DIR}" checkout --quiet "${ASG_REF}"
 
 # 4. Create virtual environment and install
 echo "Creating isolated virtual environment..."

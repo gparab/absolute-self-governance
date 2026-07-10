@@ -29,13 +29,11 @@ def setup_test_db():
     tenant_a = Tenant(
         id="tenantA",
         name="Tenant Alpha",
-        stripe_customer_id="cus_alpha123",
         api_key_hash=hash_key("tenant_tenantA_key"),
     )
     tenant_b = Tenant(
         id="tenantB",
         name="Tenant Beta",
-        stripe_customer_id="cus_beta456",
         api_key_hash=hash_key("tenant_tenantB_key"),
     )
     db.add(tenant_a)
@@ -108,7 +106,6 @@ def test_status_renders_tenant_data():
     assert response_a.status_code == 200
     data_a = response_a.json()
     assert data_a["tenant_id"] == "tenantA"
-    assert data_a["stripe_customer_id"] == "cus_alpha123"
 
     # Verify Tenant B's status
     response_b = client.get(
@@ -117,7 +114,6 @@ def test_status_renders_tenant_data():
     assert response_b.status_code == 200
     data_b = response_b.json()
     assert data_b["tenant_id"] == "tenantB"
-    assert data_b["stripe_customer_id"] == "cus_beta456"
 
 
 def test_webhook_adds_db_records(monkeypatch):
@@ -170,7 +166,6 @@ def test_create_tenant_endpoint():
     data = response.json()
     assert "tenant_id" in data
     assert "api_key" in data
-    assert "stripe_customer_id" in data
 
     tenant_id = data["tenant_id"]
     api_key = data["api_key"]

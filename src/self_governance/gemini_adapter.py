@@ -23,9 +23,15 @@ def call_gemini_with_metadata(
     max_output_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
+    # ~500k chars ≈ 125k tokens: fail fast on runaway prompts instead of
+    # paying for them or hitting opaque model-side limits.
+    if len(prompt) > 500_000:
+        raise ValueError(
+            f"Prompt of {len(prompt)} characters exceeds the 500,000-character limit."
+        )
     model_name = model or "gemini-2.5-flash"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
 
     if response_mime_type or response_schema or max_output_tokens:
@@ -46,7 +52,7 @@ def call_gemini_with_metadata(
             url, data=json.dumps(data).encode(), headers=headers, method="POST"
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as response:  # nosec B310
+            with urllib.request.urlopen(req, timeout=60) as response:  # nosec B310
                 res_data = json.loads(response.read().decode())
                 candidates = res_data.get("candidates", [])
                 usage_metadata = res_data.get("usageMetadata", {})
@@ -90,7 +96,15 @@ def call_gemini_with_metadata(
             else:
                 logger.error("Failed to query Gemini API: %s", e)
                 break
-    return {"text": "", "prompt_tokens": 0, "completion_tokens": 0, "finish_reason": "STOP"}
+    # Failure channel: callers must check "error" rather than treating an
+    # empty response as a successful completion.
+    return {
+        "text": "",
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "finish_reason": "ERROR",
+        "error": True,
+    }
 
 
 def call_gemini(
@@ -225,8 +239,13 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         """Verify API key presence and return Gemini output or a fallback message."""
         if not self.api_key:
             return {"status": "completed", "output": fallback_msg}
-        response_text = self._call_gemini_and_track(prompt, model=model)
-        return {"status": "completed", "output": response_text or fallback_msg}
+        res = self._call_gemini_and_track(prompt, model=model, return_metadata=True)
+        if res.get("error"):
+            return {
+                "status": "failed",
+                "output": "Gemini API call failed after retries.",
+            }
+        return {"status": "completed", "output": res.get("text") or fallback_msg}
 
     def plan_task(self, task_description: str) -> Dict[str, Any]:
         logger.info("Gemini Planning: Decomposing task '%s'", task_description)
@@ -310,12 +329,18 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         written_files = []
         base_dir = os.path.realpath(".")
 
+        # LLM output is attacker-influenced (webhook issue bodies feed prompts):
+        # never let it overwrite this application's own code.
+        package_dir = os.path.realpath(os.path.dirname(__file__))
+
         # Path Traversal Check helper
         def check_path_safe(filepath: str) -> Optional[str]:
             target_path = os.path.realpath(filepath)
             is_safe = (target_path == base_dir) or target_path.startswith(
                 base_dir + os.sep
             )
+            if target_path.startswith(package_dir + os.sep):
+                is_safe = False
             if os.getenv("TESTING") == "True":
                 import tempfile
 
@@ -458,6 +483,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         # Try running pytest inside a containerized sandbox
         try:
+            # Mount the workspace at /work (NOT /app — that would bury the
+            # image's venv) and override the entrypoint to run pytest.
             docker_cmd = [
                 "docker",
                 "run",
@@ -467,14 +494,13 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "--read-only",
                 "--tmpfs",
                 "/tmp",  # nosec B108
-                "--tmpfs",
-                "/app/.pytest_cache",
                 "-v",
-                f"{os.path.abspath('.')}:/app",
+                f"{os.path.abspath('.')}:/work",
                 "-w",
-                "/app",
-                "self-governance-image:latest",
+                "/work",
+                "--entrypoint",
                 "pytest",
+                "self-governance-image:latest",
             ]
             if test_target:
                 docker_cmd.append(test_target)

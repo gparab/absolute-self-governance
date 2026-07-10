@@ -22,13 +22,21 @@ spec:
         - containerPort: 8000
         env:
         - name: DATABASE_URL
-          value: "sqlite:////app/data/self_governance.db"
-        - name: ALLOW_GUEST_ACCESS
-          value: "False"
-        - name: STRIPE_API_KEY
           valueFrom:
             secretKeyRef:
-              name: stripe-secrets
+              name: db-secrets
+              key: database-url
+        - name: ALLOW_GUEST_ACCESS
+          value: "False"
+        - name: WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: github-secrets
+              key: webhook-secret
+        - name: ADMIN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: admin-secrets
               key: api-key
         - name: GEMINI_API_KEY
           valueFrom:
@@ -44,26 +52,20 @@ spec:
             memory: 256Mi
         livenessProbe:
           httpGet:
-            path: /metrics
+            path: /health
             port: 8000
           initialDelaySeconds: 15
           periodSeconds: 20
         readinessProbe:
           httpGet:
-            path: /metrics
+            path: /health
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
-        volumeMounts:
-        - name: db-data
-          mountPath: /app/data
         securityContext:
           runAsNonRoot: true
           runAsUser: 10001
           readOnlyRootFilesystem: true
-      volumes:
-      - name: db-data
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

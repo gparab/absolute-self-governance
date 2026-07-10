@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import json
 import pytest
 from fastapi.testclient import TestClient
 from self_governance.github_app import app
@@ -5,6 +8,18 @@ from self_governance.learning import LEARNING_STATE_FILE
 import os
 
 client = TestClient(app)
+
+
+def signed_post(payload: dict, event: str, extra_headers: dict = None):
+    """POST /webhook with a valid HMAC signature for the test secret."""
+    body = json.dumps(payload).encode()
+    sig = hmac.new(
+        os.environ["WEBHOOK_SECRET"].encode(), body, hashlib.sha256
+    ).hexdigest()
+    headers = {"X-GitHub-Event": event, "X-Hub-Signature-256": f"sha256={sig}"}
+    if extra_headers:
+        headers.update(extra_headers)
+    return client.post("/webhook", content=body, headers=headers)
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +32,7 @@ def clean_learning_state():
 
 
 def test_webhook_ping():
-    response = client.post("/webhook", json={}, headers={"X-GitHub-Event": "ping"})
+    response = signed_post({}, "ping")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "msg": "pong"}
 
@@ -44,9 +59,7 @@ def test_webhook_issue_opened(tmp_path):
         with open(handoff_path, "w") as f:
             f.write("status: COMPLETED\ncandidates:\n  - agent_1\n")
 
-        response = client.post(
-            "/webhook", json=payload, headers={"X-GitHub-Event": "issues"}
-        )
+        response = signed_post(payload, "issues")
         assert response.status_code == 200
         json_data = response.json()
         assert json_data["status"] == "success"
@@ -64,9 +77,7 @@ def test_webhook_pr_closed_merged():
         },
     }
 
-    response = client.post(
-        "/webhook", json=payload, headers={"X-GitHub-Event": "pull_request"}
-    )
+    response = signed_post(payload, "pull_request")
     assert response.status_code == 200
     assert response.json()["status"] == "success"
 

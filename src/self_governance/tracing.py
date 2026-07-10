@@ -6,14 +6,21 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 
 logger = logging.getLogger("self_governance.tracing")
 
-# Initialize OpenTelemetry Tracer
+# Initialize OpenTelemetry Tracer.
+# OTEL_EXPORTER_OTLP_ENDPOINT set -> ship spans there; otherwise console.
 provider = TracerProvider()
 if os.getenv("TESTING") != "True":
     try:
-        processor = BatchSpanProcessor(ConsoleSpanExporter())
-        provider.add_span_processor(processor)
+        if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+
+            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        else:
+            provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     except Exception as e:
-        logger.warning("Could not initialize OTel console exporter: %s", e)
+        logger.warning("Could not initialize OTel exporter: %s", e)
 
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("self_governance")

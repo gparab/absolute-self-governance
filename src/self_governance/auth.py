@@ -11,9 +11,12 @@ from self_governance.db import get_db, Tenant, RateLimitEntry
 tenant_id_var = contextvars.ContextVar("tenant_id", default="")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
-ALLOW_GUEST_ACCESS = (
-    os.getenv("ALLOW_GUEST_ACCESS", "False").lower() in ("true", "1", "yes")
-    or os.getenv("TESTING") == "True"
+# Deliberately independent of TESTING: a test flag must never widen the
+# production auth boundary.
+ALLOW_GUEST_ACCESS = os.getenv("ALLOW_GUEST_ACCESS", "False").lower() in (
+    "true",
+    "1",
+    "yes",
 )
 
 
@@ -77,8 +80,16 @@ def rate_limit_tenant(
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
 
-    # Delete old entries to keep DB clean
-    db.query(RateLimitEntry).filter(RateLimitEntry.timestamp < window_start).delete()
+    # Serialize concurrent requests per tenant: locking the tenant row makes
+    # the count+insert below atomic across workers (no-op on SQLite, which is
+    # single-writer anyway).
+    db.query(Tenant).filter(Tenant.id == tenant.id).with_for_update().first()
+
+    # Delete this tenant's stale entries (per-tenant, not a global sweep)
+    db.query(RateLimitEntry).filter(
+        RateLimitEntry.tenant_id == tenant.id,
+        RateLimitEntry.timestamp < window_start,
+    ).delete()
 
     # Count current active entries for this tenant
     count = (

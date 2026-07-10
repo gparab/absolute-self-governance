@@ -17,7 +17,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --no-install-project
+COPY src/ ./src
+RUN uv sync
 
 # Stage 2: Runtime image
 FROM python:3.13-slim AS runner
@@ -34,8 +35,6 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 COPY --from=builder /app/.venv /app/.venv
 COPY src/ ./src
 COPY pyproject.toml ./
-
-RUN pip install --no-deps -e .
 
 RUN chown -R appuser:appgroup /app
 

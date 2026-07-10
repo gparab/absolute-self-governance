@@ -88,8 +88,10 @@ def test_nudger_transient_failure_lockout(tmp_path):
     # Resolve the write block
     os.rmdir(str(log_file))
 
-    # Wait to see if succession is retried (it should be retried and succeed)
-    time.sleep(0.3)
+    # Wait to see if succession is retried (retries now use exponential backoff)
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not log_file.is_file():
+        time.sleep(0.1)
 
     # Succession WAS retried and log_file was created as a file
     assert log_file.exists()

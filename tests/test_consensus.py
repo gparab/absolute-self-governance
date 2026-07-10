@@ -150,15 +150,6 @@ def test_consensus_temperature_clamped_by_t_max():
     assert res.final_temperature == 1.5
 
 
-def test_encryption_decryption():
-    from self_governance.consensus import _encrypt_reason, _decrypt_reason
-    msg = "This is a secure deliberation justification."
-    encrypted = _encrypt_reason(msg)
-    assert encrypted != msg
-    decrypted = _decrypt_reason(encrypted)
-    assert decrypted == msg
-
-
 def test_advisor_nudge_and_capping():
     from unittest.mock import MagicMock
     from self_governance.consensus import run_consensus
@@ -177,7 +168,7 @@ def test_advisor_nudge_and_capping():
     # Run consensus with the mock adapter
     # Set B=3, target_tau=8.5 so it takes multiple iterations.
     # Nudge turn defaults to 2.
-    res = run_consensus(
+    run_consensus(
         ["agent_A", "agent_B"],
         B=3,
         target_tau=8.5,

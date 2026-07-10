@@ -34,6 +34,13 @@ async def add_correlation_id(request: Request, call_next):
     return response
 
 
+@app.get("/health")
+def health():
+    """Liveness/readiness probe target. Deliberately unauthenticated and
+    free of tenant data, unlike /metrics."""
+    return {"status": "ok"}
+
+
 @app.get("/metrics")
 def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
@@ -49,7 +56,6 @@ def get_status(
     return {
         "status": "ok",
         "tenant_id": tenant.id,
-        "stripe_customer_id": tenant.stripe_customer_id or "N/A",
         "total_cost": total_cost,
         "total_tokens": total_tokens,
     }
@@ -59,21 +65,37 @@ class TenantCreateRequest(BaseModel):
     name: str
 
 
+def require_admin(request: Request) -> None:
+    """Tenant provisioning is an admin operation, not a public endpoint."""
+    admin_key = os.getenv("ADMIN_API_KEY")
+    if not admin_key:
+        if os.getenv("TESTING") == "True":
+            return
+        raise HTTPException(
+            status_code=503, detail="Tenant provisioning is not enabled."
+        )
+    presented = request.headers.get("X-Admin-Key", "")
+    if not hmac.compare_digest(presented, admin_key):
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+
+
 @app.post("/tenants")
-def create_tenant(payload: TenantCreateRequest, db: Session = Depends(get_db)):
-    """Self-serve API-key issuance flow for new tenants."""
+def create_tenant(
+    payload: TenantCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """API-key issuance flow for new tenants (admin-only)."""
+    require_admin(request)
     tenant_id = "t" + secrets.token_hex(4)
     secret_key = secrets.token_hex(16)
     api_key = f"tenant_{tenant_id}_{secret_key}"
     api_key_hash = hash_key(api_key)
 
-    stripe_customer_id = f"cus_{secrets.token_hex(8)}"
-
     tenant = Tenant(
         id=tenant_id,
         name=payload.name,
         api_key_hash=api_key_hash,
-        stripe_customer_id=stripe_customer_id,
     )
     db.add(tenant)
     db.commit()
@@ -82,7 +104,6 @@ def create_tenant(payload: TenantCreateRequest, db: Session = Depends(get_db)):
     return {
         "tenant_id": tenant_id,
         "api_key": api_key,
-        "stripe_customer_id": stripe_customer_id,
         "msg": "Store the api_key safely. It will not be shown again.",
     }
 
@@ -99,9 +120,6 @@ if os.getenv("TESTING") != "True" and not os.getenv("WEBHOOK_SECRET"):
 async def verify_signature(request: Request):
     """Verify GitHub webhook HMAC signature."""
     secret = os.getenv("WEBHOOK_SECRET")
-    if os.getenv("TESTING") == "True" and not secret:
-        return
-
     if not secret:
         raise HTTPException(status_code=500, detail="WEBHOOK_SECRET is not configured.")
 
@@ -163,9 +181,25 @@ async def github_webhook(
                 from self_governance.gemini_adapter import GeminiExecutionAdapter
 
                 adapter = GeminiExecutionAdapter()
-                res = nudger.trigger_succession(
-                    f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter
-                )
+                try:
+                    res = nudger.trigger_succession(
+                        f"status: COMPLETED\ncandidates: {candidates}", adapter=adapter
+                    )
+                except Exception:
+                    # LLM spend already happened; record it before propagating
+                    # so a failed succession is never free *and* unbilled.
+                    cost = (adapter.prompt_tokens * 0.000000075) + (
+                        adapter.completion_tokens * 0.00000030
+                    )
+                    if adapter.prompt_tokens or adapter.completion_tokens:
+                        record_usage(
+                            tenant_id=tenant.id,
+                            prompt_tokens=adapter.prompt_tokens,
+                            completion_tokens=adapter.completion_tokens,
+                            cost_usd=cost,
+                            db=db,
+                        )
+                    raise
 
                 prompt_tokens = res.prompt_tokens
                 completion_tokens = res.completion_tokens

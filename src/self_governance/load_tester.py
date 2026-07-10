@@ -1,7 +1,7 @@
 import asyncio
+import statistics
 import time
-import httpx
-import numpy as np
+import httpx  # dev-group dependency: this module is a diagnostic tool, not a prod entry point
 
 
 async def send_request(client: httpx.AsyncClient, url: str, headers: dict) -> float:
@@ -54,9 +54,11 @@ async def run_load_test(
         )
 
         if valid_latencies:
-            p50 = np.percentile(valid_latencies, 50)
-            p90 = np.percentile(valid_latencies, 90)
-            p99 = np.percentile(valid_latencies, 99)
+            if len(valid_latencies) >= 2:
+                quantiles = statistics.quantiles(valid_latencies, n=100, method="inclusive")
+                p50, p90, p99 = quantiles[49], quantiles[89], quantiles[98]
+            else:
+                p50 = p90 = p99 = valid_latencies[0]
             print(f"p50 Latency: {p50:.4f}s")
             print(f"p90 Latency: {p90:.4f}s")
             print(f"p99 Latency: {p99:.4f}s")

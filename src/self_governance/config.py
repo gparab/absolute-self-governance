@@ -48,16 +48,40 @@ class OrchestratorConfig:
     def __init__(self, config_path: str = None) -> None:
         self.config_data = copy.deepcopy(DEFAULT_CONFIG)
         if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    user_data = yaml.safe_load(f)
-                    if user_data:
-                        self._merge_config(self.config_data, user_data)
-                logger.info("Loaded configuration from %s", config_path)
-            except Exception as e:
-                logger.warning(
-                    "Failed to load config from %s: %s. Using defaults.", config_path, e
-                )
+            # Fail fast: a config file the operator pointed at must load and
+            # validate, never silently degrade to defaults.
+            with open(config_path, "r", encoding="utf-8") as f:
+                user_data = yaml.safe_load(f)
+            if user_data is not None and not isinstance(user_data, dict):
+                raise ValueError(f"Config file {config_path} must be a YAML mapping")
+            if user_data:
+                self._validate(user_data, config_path)
+                self._merge_config(self.config_data, user_data)
+            logger.info("Loaded configuration from %s", config_path)
+
+    def _validate(self, user_data: Dict[str, Any], config_path: str) -> None:
+        """Reject unknown keys and values whose type disagrees with the default."""
+        unknown = set(user_data) - set(DEFAULT_CONFIG)
+        if unknown:
+            raise ValueError(
+                f"Unknown config keys in {config_path}: {sorted(unknown)}"
+            )
+        for section, values in user_data.items():
+            defaults = DEFAULT_CONFIG[section]
+            if not isinstance(values, dict):
+                raise ValueError(f"Config section '{section}' must be a mapping")
+            for key, value in values.items():
+                default = defaults.get(key)
+                if default is None:
+                    continue  # new keys within known sections are allowed
+                expected = (int, float) if isinstance(default, (int, float)) else type(default)
+                if isinstance(default, bool):
+                    expected = bool
+                if not isinstance(value, expected):
+                    raise ValueError(
+                        f"Config value {section}.{key} must be {expected}, "
+                        f"got {type(value).__name__}: {value!r}"
+                    )
 
     def _merge_config(self, base: Dict[str, Any], update: Dict[str, Any]) -> None:
         for k, v in update.items():
