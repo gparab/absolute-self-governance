@@ -1,0 +1,92 @@
+{
+  "task_secure_reader": {
+    "name": "Secure File Reader",
+    "baseline": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 23.6,
+      "mean_cost_usd": 0.000417
+    },
+    "asg": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 68.4,
+      "mean_cost_usd": 0.00141
+    }
+  },
+  "task_thread_safe_cache": {
+    "name": "Thread Safe Cache",
+    "baseline": {
+      "pass_rate": "4/5",
+      "pass_pct": 0.8,
+      "mean_latency_sec": 12.8,
+      "mean_cost_usd": 0.000288
+    },
+    "asg": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 56.5,
+      "mean_cost_usd": 0.001334
+    }
+  },
+  "task_reverse_string": {
+    "name": "Reverse String (trivial)",
+    "baseline": {
+      "pass_rate": "4/5",
+      "pass_pct": 0.8,
+      "mean_latency_sec": 12.2,
+      "mean_cost_usd": 0.000253
+    },
+    "asg": {
+      "pass_rate": "2/5",
+      "pass_pct": 0.4,
+      "mean_latency_sec": 56.1,
+      "mean_cost_usd": 0.001271
+    }
+  },
+  "task_email_validator": {
+    "name": "Email Validator (easy)",
+    "baseline": {
+      "pass_rate": "4/5",
+      "pass_pct": 0.8,
+      "mean_latency_sec": 48.8,
+      "mean_cost_usd": 0.000409
+    },
+    "asg": {
+      "pass_rate": "3/5",
+      "pass_pct": 0.6,
+      "mean_latency_sec": 74.5,
+      "mean_cost_usd": 0.001274
+    }
+  },
+  "task_lru_cache": {
+    "name": "LRU Cache (hard)",
+    "baseline": {
+      "pass_rate": "4/5",
+      "pass_pct": 0.8,
+      "mean_latency_sec": 22.7,
+      "mean_cost_usd": 0.000546
+    },
+    "asg": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 70.6,
+      "mean_cost_usd": 0.001522
+    }
+  },
+  "task_retry_backoff": {
+    "name": "Retry With Backoff Decorator (hard)",
+    "baseline": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 17.6,
+      "mean_cost_usd": 0.000392
+    },
+    "asg": {
+      "pass_rate": "5/5",
+      "pass_pct": 1.0,
+      "mean_latency_sec": 70.2,
+      "mean_cost_usd": 0.001439
+    }
+  }
+}

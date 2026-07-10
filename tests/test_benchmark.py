@@ -6,8 +6,16 @@ from self_governance.cli import main
 
 def test_load_benchmark_tasks():
     tasks = load_benchmark_tasks()
-    assert len(tasks) == 2
-    assert tasks[0]["id"] == "task_secure_reader"
+    assert len(tasks) == 6
+    ids = {t["id"] for t in tasks}
+    assert ids == {
+        "task_secure_reader",
+        "task_thread_safe_cache",
+        "task_reverse_string",
+        "task_email_validator",
+        "task_lru_cache",
+        "task_retry_backoff",
+    }
 
 
 def test_run_benchmark_mocked(monkeypatch):
