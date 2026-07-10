@@ -491,6 +491,8 @@ uv run alembic upgrade head        # run against DATABASE_URL before rollout
 kubectl apply -f k8s-webhook.yaml
 ```
 
+This manifest is provided as a deployment reference and has not been applied to a live cluster by the maintainers — validate secrets, DNS, and the Postgres connection against your own cluster before production use.
+
 **Schema changes** go through Alembic (`uv run alembic revision --autogenerate -m "..."`), never `create_all`, once a production database exists. Tenants are never hard-deleted — usage and session history is audit data.
 
 **Endpoints:** `/health` (probes, unauthenticated, no data), `/metrics` (Prometheus — keep cluster-internal; it exposes cost counters), `/status` + `/webhook` (tenant-authenticated), `/tenants` (admin key). Set `OTEL_EXPORTER_OTLP_ENDPOINT` to ship traces; unset means spans print to stdout.

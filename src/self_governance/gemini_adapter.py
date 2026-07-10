@@ -21,6 +21,7 @@ def call_gemini_with_metadata(
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
     # ~500k chars ≈ 125k tokens: fail fast on runaway prompts instead of
@@ -34,7 +35,7 @@ def call_gemini_with_metadata(
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
     data = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    if response_mime_type or response_schema or max_output_tokens:
+    if response_mime_type or response_schema or max_output_tokens or temperature is not None:
         gen_config = {}
         if response_mime_type:
             gen_config["responseMimeType"] = response_mime_type
@@ -42,6 +43,10 @@ def call_gemini_with_metadata(
             gen_config["responseSchema"] = response_schema
         if max_output_tokens:
             gen_config["maxOutputTokens"] = max_output_tokens
+        if temperature is not None:
+            # Defensive clamp: Gemini's valid range is 0.0-2.0, regardless of
+            # what a caller passes (e.g. consensus.py's annealed temp).
+            gen_config["temperature"] = min(2.0, max(0.0, temperature))
         data["generationConfig"] = gen_config
 
     attempts = 3
@@ -114,11 +119,13 @@ def call_gemini(
     response_mime_type: Optional[str] = None,
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
 ) -> str:
     """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
     try:
         return call_gemini_with_metadata(
-            prompt, api_key, response_schema, response_mime_type, model, max_output_tokens
+            prompt, api_key, response_schema, response_mime_type, model, max_output_tokens,
+            temperature=temperature,
         )["text"]
     except TypeError:
         return call_gemini_with_metadata(
@@ -170,6 +177,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         model: Optional[str] = None,
         max_output_tokens: Optional[int] = None,
         return_metadata: bool = False,
+        temperature: Optional[float] = None,
     ) -> Any:
         """Call Gemini and accumulate token counts for pricing calculations."""
         model_name = model or self.model_default
@@ -183,6 +191,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         response_mime_type=response_mime_type,
                         model=model_name,
                         max_output_tokens=max_output_tokens,
+                        temperature=temperature,
                     )
                     res = {"text": res_text, "finish_reason": "STOP"}
                 except TypeError:
@@ -206,6 +215,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         response_mime_type=response_mime_type,
                         model=model_name,
                         max_output_tokens=max_output_tokens,
+                        temperature=temperature,
                     )
                 except TypeError:
                     try:

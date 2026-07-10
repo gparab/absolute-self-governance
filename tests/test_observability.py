@@ -44,6 +44,40 @@ def test_structured_json_formatter():
     assert "timestamp" in log_data
 
 
+def test_structured_json_formatter_includes_known_extra_fields():
+    """tenant_id/event_type/duration_ms passed via extra= must survive into
+    JSON output; the formatter only reads a fixed key set, not record.__dict__
+    wholesale, so a newly attached field silently vanishing is a real regression."""
+    formatter = StructuredJSONFormatter()
+    record = logging.LogRecord(
+        name="test_logger",
+        level=logging.INFO,
+        pathname="test_file.py",
+        lineno=10,
+        msg="Succession session completed",
+        args=(),
+        exc_info=None,
+    )
+    record.tenant_id = "tenantA"
+    record.event_type = "issues"
+    record.duration_ms = 123.4
+
+    log_data = json.loads(formatter.format(record))
+
+    assert log_data["tenant_id"] == "tenantA"
+    assert log_data["event_type"] == "issues"
+    assert log_data["duration_ms"] == 123.4
+
+    # A field that was never attached must not appear at all.
+    formatter_bare = StructuredJSONFormatter()
+    bare_record = logging.LogRecord(
+        name="test_logger", level=logging.INFO, pathname="test_file.py",
+        lineno=10, msg="no extras", args=(), exc_info=None,
+    )
+    bare_data = json.loads(formatter_bare.format(bare_record))
+    assert "tenant_id" not in bare_data
+
+
 def test_metrics_endpoint():
     client = TestClient(app)
     response = client.get("/metrics")

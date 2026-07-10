@@ -61,9 +61,9 @@ async def authenticate_tenant(
                 # and verify the HMAC signature / hash
                 presented_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
                 if tenant.api_key_hash and hmac.compare_digest(
-                    tenant.api_key_hash, presented_hash
+                    str(tenant.api_key_hash), presented_hash
                 ):
-                    set_current_tenant_id(tenant.id)
+                    set_current_tenant_id(str(tenant.id))
                     return tenant
 
     raise HTTPException(status_code=401, detail="Invalid authorization token")

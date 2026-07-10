@@ -3,6 +3,8 @@ import hmac
 import hashlib
 import logging
 import secrets
+import time
+from typing import Any, Dict, Optional
 from pydantic import BaseModel
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import Response
@@ -24,6 +26,26 @@ init_db()
 
 logger = logging.getLogger("self_governance.github_app")
 app = FastAPI(title="Self-Governing Software Factory App")
+
+
+def _log_ctx(
+    tenant_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    duration_ms: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Build the extra= dict for fields StructuredJSONFormatter picks up.
+
+    correlation_id is deliberately omitted: the formatter reads it straight
+    from the contextvar, not from extra=.
+    """
+    ctx: Dict[str, Any] = {}
+    if tenant_id is not None:
+        ctx["tenant_id"] = tenant_id
+    if event_type is not None:
+        ctx["event_type"] = event_type
+    if duration_ms is not None:
+        ctx["duration_ms"] = round(duration_ms, 1)
+    return ctx
 
 
 @app.middleware("http")
@@ -163,7 +185,11 @@ async def github_webhook(
                 issue = payload.get("issue", {})
                 title = issue.get("title", "")
                 body = issue.get("body", "")
-                logger.info("Processing new GitHub issue: %s", title)
+                logger.info(
+                    "Processing new GitHub issue: %s",
+                    title,
+                    extra=_log_ctx(tenant_id=tenant.id, event_type=event),
+                )
 
                 # Analyze task complexity based on simple keyword heuristics
                 req_vector = [1.0, 1.0]
@@ -181,6 +207,7 @@ async def github_webhook(
                 from self_governance.gemini_adapter import GeminiExecutionAdapter
 
                 adapter = GeminiExecutionAdapter()
+                succession_start = time.monotonic()
                 try:
                     res = nudger.trigger_succession(
                         f"status: COMPLETED\ncandidates: {candidates}",
@@ -202,6 +229,16 @@ async def github_webhook(
                             db=db,
                         )
                     raise
+
+                logger.info(
+                    "Succession session completed: %s",
+                    ", ".join(candidates),
+                    extra=_log_ctx(
+                        tenant_id=tenant.id,
+                        event_type=event,
+                        duration_ms=(time.monotonic() - succession_start) * 1000,
+                    ),
+                )
 
                 prompt_tokens = res.prompt_tokens
                 completion_tokens = res.completion_tokens

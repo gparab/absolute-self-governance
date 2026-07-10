@@ -15,6 +15,9 @@ class ConsensusResult(tuple):
     Contains the approved roster, final temperature, and final threshold.
     """
 
+    prompt_tokens: int
+    completion_tokens: int
+
     def __new__(
         cls,
         approved_roster: List[str],
@@ -152,8 +155,8 @@ def run_consensus(
             nudge_turn = 2
             nudge_text = "Please call advisor() before committing to an approach or declaring completion."
 
-        justifications = {}
-        scores = {}
+        justifications: dict[str, dict[str, Any]] = {}
+        scores: dict[str, float] = {}
         advisor_called = False
         import time as _time
 
@@ -164,7 +167,7 @@ def run_consensus(
             if _time.monotonic() > deadline and iteration > 1:
                 approved = [a for a, s in scores.items() if s >= tau]
                 if not approved and scores:
-                    approved = [max(scores, key=scores.get)]
+                    approved = [max(scores, key=lambda a: scores[a])]
                 result = ConsensusResult(approved, temp, tau)
                 if adapter is not None:
                     result.prompt_tokens = adapter.prompt_tokens
@@ -254,6 +257,7 @@ def run_consensus(
                         response_schema=schema,
                         response_mime_type="application/json",
                         model=model,
+                        temperature=temp,
                     )
                     # An empty response means the API call failed; score it as a
                     # rejection so an outage can never approve a roster.
@@ -320,7 +324,7 @@ def run_consensus(
             if iteration > 1000:
                 approved = [agent for agent, score in scores.items() if score >= tau]
                 if not approved:
-                    max_agent = max(scores, key=scores.get)
+                    max_agent = max(scores, key=lambda a: scores[a])
                     approved = [max_agent]
                 result = ConsensusResult(approved, temp, tau)
                 if adapter is not None:

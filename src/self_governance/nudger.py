@@ -191,7 +191,7 @@ class ContinuousNudger:
                                 req_vector, self.config.default_matrix
                             )
 
-                            swarm_counts = {}
+                            swarm_counts: dict[str, int] = {}
                             for agent in swarm_config.swarm:
                                 swarm_counts[agent.role] = (
                                     swarm_counts.get(agent.role, 0) + 1

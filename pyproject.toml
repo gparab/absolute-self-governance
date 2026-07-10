@@ -50,16 +50,11 @@ ignore_missing_imports = true
 # individually. Fix a module, delete it from this list — never re-widen.
 [[tool.mypy.overrides]]
 module = [
-    "self_governance.auth",
     "self_governance.benchmark",
-    "self_governance.config",
-    "self_governance.consensus",
     "self_governance.db",
-    "self_governance.dimensioning",
     "self_governance.gemini_adapter",
     "self_governance.github_app",
     "self_governance.models",
-    "self_governance.nudger",
 ]
 ignore_errors = true
 

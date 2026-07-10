@@ -1,18 +1,21 @@
 import bisect
 import math
-from typing import List, Union, Iterator
+from typing import List, Optional, Union, Iterator, overload
 from collections.abc import Sequence
 from self_governance.models import Agent, SwarmConfig
 
 
-class LazyList(Sequence):
+class LazyList(Sequence[Agent]):
     """
     A memory-efficient, immutable sequence implementation that dynamically instantiates
     Agent objects on-demand rather than keeping them in memory.
     """
 
     def __init__(
-        self, prefix_sums: List[int], total_count: int, capabilities: List[str] = None
+        self,
+        prefix_sums: List[int],
+        total_count: int,
+        capabilities: Optional[List[str]] = None,
     ) -> None:
         """
         Initialize LazyList.
@@ -29,6 +32,12 @@ class LazyList(Sequence):
     def __len__(self) -> int:
         """Return the total number of agents."""
         return self._total_count
+
+    @overload
+    def __getitem__(self, idx: int) -> Agent: ...
+
+    @overload
+    def __getitem__(self, idx: slice) -> List[Agent]: ...
 
     def __getitem__(self, idx: Union[int, slice]) -> Union[Agent, List[Agent]]:
         """

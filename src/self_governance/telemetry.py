@@ -9,6 +9,11 @@ import contextvars
 correlation_id_var = contextvars.ContextVar("correlation_id", default="")
 
 
+# Fields callers may attach via logger.info(..., extra={...}) that should
+# flow into structured JSON output when present on the record.
+_STRUCTURED_EXTRA_FIELDS = ("tenant_id", "event_type", "duration_ms")
+
+
 class StructuredJSONFormatter(logging.Formatter):
     """Formats log records as JSON dictionaries including correlation IDs."""
 
@@ -22,6 +27,9 @@ class StructuredJSONFormatter(logging.Formatter):
             "message": record.getMessage(),
             "correlation_id": correlation_id_var.get() or "",
         }
+        for field in _STRUCTURED_EXTRA_FIELDS:
+            if hasattr(record, field):
+                log_obj[field] = getattr(record, field)
         if record.exc_info:
             log_obj["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_obj)

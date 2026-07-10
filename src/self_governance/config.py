@@ -2,11 +2,11 @@ import os
 import logging
 import yaml
 import copy
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("self_governance.config")
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
     "consensus": {
         "buffer_limit": 3,
         "target_threshold": 9.0,
@@ -45,8 +45,8 @@ class OrchestratorConfig:
     Configuration manager for the Self-Governance orchestrator.
     """
 
-    def __init__(self, config_path: str = None) -> None:
-        self.config_data = copy.deepcopy(DEFAULT_CONFIG)
+    def __init__(self, config_path: Optional[str] = None) -> None:
+        self.config_data: Dict[str, Dict[str, Any]] = copy.deepcopy(DEFAULT_CONFIG)
         if config_path and os.path.exists(config_path):
             # Fail fast: a config file the operator pointed at must load and
             # validate, never silently degrade to defaults.

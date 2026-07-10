@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import pytest
 import urllib.request
 import urllib.error
@@ -107,21 +108,27 @@ def test_models_coverage_boost():
 
 
 def test_telemetry_coverage_boost(monkeypatch):
-    # Exception formatting in StructuredJSONFormatter
+    # Exception formatting in StructuredJSONFormatter. A real LogRecord is
+    # used (not MagicMock) because the formatter now does hasattr() checks
+    # for known extra fields, and MagicMock fabricates a truthy attribute
+    # for any name accessed, which broke this test with an unrelated field.
     formatter = StructuredJSONFormatter()
-    log_record = MagicMock()
-    log_record.created = 1717171717.0
-    log_record.levelname = "ERROR"
-    log_record.name = "test_logger"
-    log_record.getMessage.return_value = "Test log message"
-
-    # Trigger exception formatting path
     try:
         raise ValueError("Simulated error")
     except ValueError:
         import sys
 
-        log_record.exc_info = sys.exc_info()
+        exc_info = sys.exc_info()
+
+    log_record = logging.LogRecord(
+        name="test_logger",
+        level=logging.ERROR,
+        pathname="test_file.py",
+        lineno=1,
+        msg="Test log message",
+        args=(),
+        exc_info=exc_info,
+    )
 
     res = formatter.format(log_record)
     parsed = json.loads(res)
