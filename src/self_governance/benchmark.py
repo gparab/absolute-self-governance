@@ -197,11 +197,26 @@ def _run_one_isolated(
     return {"task_id": task["id"], "mode": mode, "rep": rep, "result": result}
 
 
+def _load_resume_outcomes(resume_path: str) -> List[Dict[str, Any]]:
+    """Read previously-completed outcomes from a JSONL checkpoint file.
+    Missing file means a fresh run, not an error."""
+    if not os.path.exists(resume_path):
+        return []
+    outcomes = []
+    with open(resume_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                outcomes.append(json.loads(line))
+    return outcomes
+
+
 def run_benchmark_parallel(
     api_key: Optional[str] = None,
     reps: int = 5,
     workers: int = 4,
     on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
+    resume_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the benchmark across multiple repetitions, concurrently, each
     repetition isolated in its own process and working directory.
@@ -220,30 +235,50 @@ def run_benchmark_parallel(
     large sweep can run for a long time and losing all progress on a crash
     partway through is a real, previously-experienced cost, not a
     hypothetical one.
+
+    resume_path, if given, makes the sweep resumable across many short
+    runs (e.g. a free-tier daily quota cutting a run off mid-sweep): each
+    outcome is appended to this file as JSONL as it completes, and any
+    (task_id, mode, rep) already present there is skipped on the next
+    call instead of re-run.
     """
     workers = max(1, min(workers, 16))
     tasks = load_benchmark_tasks()
+
+    done_keys = set()
+    results: Dict[str, Any] = {
+        t["id"]: {"name": t["name"], "baseline": [], "asg": []} for t in tasks
+    }
+    if resume_path:
+        for outcome in _load_resume_outcomes(resume_path):
+            done_keys.add((outcome["task_id"], outcome["mode"], outcome["rep"]))
+            results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
 
     units = [
         (task, mode, rep)
         for task in tasks
         for mode in ("baseline", "asg")
         for rep in range(reps)
+        if (task["id"], mode, rep) not in done_keys
     ]
 
-    results: Dict[str, Any] = {
-        t["id"]: {"name": t["name"], "baseline": [], "asg": []} for t in tasks
-    }
-
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(_run_one_isolated, task, mode, rep, api_key)
-            for task, mode, rep in units
-        ]
-        for future in as_completed(futures):
-            outcome = future.result()
-            results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
-            if on_result is not None:
-                on_result(outcome)
+    checkpoint_f = open(resume_path, "a", encoding="utf-8") if resume_path else None
+    try:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_run_one_isolated, task, mode, rep, api_key)
+                for task, mode, rep in units
+            ]
+            for future in as_completed(futures):
+                outcome = future.result()
+                results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
+                if checkpoint_f is not None:
+                    checkpoint_f.write(json.dumps(outcome) + "\n")
+                    checkpoint_f.flush()
+                if on_result is not None:
+                    on_result(outcome)
+    finally:
+        if checkpoint_f is not None:
+            checkpoint_f.close()
 
     return results

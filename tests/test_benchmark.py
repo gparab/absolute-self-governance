@@ -179,6 +179,38 @@ def test_cli_benchmark_parallel(monkeypatch, capsys):
     assert "task_tiny" in out and "baseline" in out and "asg" in out
 
 
+def test_run_benchmark_parallel_resume_skips_completed_units(tmp_path, monkeypatch):
+    """A checkpoint file lets a sweep survive being cut off (e.g. a daily
+    quota) and pick up only the unfinished units next time, instead of
+    re-running everything from scratch."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+    )
+    checkpoint = tmp_path / "checkpoint.jsonl"
+
+    # First run: only 1 rep, writes 2 units (baseline+asg) to the checkpoint.
+    run_benchmark_parallel(
+        api_key=None, reps=1, workers=2, resume_path=str(checkpoint)
+    )
+    assert len(checkpoint.read_text().strip().splitlines()) == 2
+
+    # Second run asks for 2 reps -- rep 0 for both modes is already done,
+    # so only 2 new units (rep 1, baseline+asg) should actually execute.
+    seen = []
+    results = run_benchmark_parallel(
+        api_key=None,
+        reps=2,
+        workers=2,
+        resume_path=str(checkpoint),
+        on_result=seen.append,
+    )
+    assert len(seen) == 2, "resume should have skipped the already-done units"
+    assert len(results["task_tiny"]["baseline"]) == 2
+    assert len(results["task_tiny"]["asg"]) == 2
+    assert len(checkpoint.read_text().strip().splitlines()) == 4
+
+
 def test_run_benchmark_parallel_workers_clamped():
     """workers is clamped to a sane range so a typo (e.g. workers=1000)
     can't fork-bomb the host."""
