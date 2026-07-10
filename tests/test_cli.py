@@ -71,6 +71,38 @@ def test_cli_run_nudger():
         mock_instance.watch_handoff.assert_called_once()
 
 
+def test_cli_demo(monkeypatch, capsys):
+    import uvicorn
+    from self_governance import cli
+
+    monkeypatch.setattr(
+        "sys.argv", ["self-governance", "demo", "--port", "18998"]
+    )
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self: None)
+
+    # run_demo's own pause and cli.py's post-summary poll loop both call
+    # time.sleep; let the first call (the pause between scenarios) through
+    # fast, then interrupt on the next one (the "keep serving" loop).
+    calls = {"n": 0}
+    real_sleep = __import__("time").sleep
+
+    def fake_sleep(seconds):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_sleep(0)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+
+    cli.main()
+
+    out = capsys.readouterr().out
+    assert "no API key required, zero cost" in out
+    assert "Trivial task" in out
+    assert "Complex task" in out
+    assert "Dashboard is still live" in out
+
+
 def test_cli_invalid_arguments():
     test_args = ["self-governance", "invalid-command"]
     with patch.object(sys, "argv", test_args):

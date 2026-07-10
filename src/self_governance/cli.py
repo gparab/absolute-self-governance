@@ -1,6 +1,15 @@
 import argparse
+import os
 import sys
 import json
+
+# tracing.py decides console-vs-OTLP export at import time based on TESTING,
+# and gets pulled in transitively via nudger -> consensus -> tracing below,
+# before argparse has parsed a subcommand. Peek argv directly so `demo` (a
+# zero-setup, first-impression command) doesn't spam raw span JSON.
+if "demo" in sys.argv:
+    os.environ.setdefault("TESTING", "True")
+
 from self_governance.nudger import ContinuousNudger, write_swarm_config_to_stream
 from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
@@ -61,6 +70,14 @@ def main():
     # benchmark subcommand
     subparsers.add_parser(
         "benchmark", help="Run the diagnostic comparison benchmark suite"
+    )
+
+    # demo subcommand: zero-setup, zero-cost walkthrough of dynamic team sizing
+    parser_demo = subparsers.add_parser(
+        "demo", help="Zero-setup demo of dynamic swarm sizing (no API key needed)"
+    )
+    parser_demo.add_argument(
+        "--port", type=int, default=8643, help="Monitor port (default: 8643)"
     )
 
     args = parser.parse_args()
@@ -124,6 +141,28 @@ def main():
             nudger.watch_handoff()
         except KeyboardInterrupt:
             nudger.stop()
+    elif args.subcommand == "demo":
+        import threading
+        import uvicorn
+        from self_governance.devserver import dev_app
+        from self_governance.demo import run_demo
+
+        server = uvicorn.Server(
+            uvicorn.Config(dev_app, host="127.0.0.1", port=args.port, log_level="warning")
+        )
+        threading.Thread(target=server.run, daemon=True).start()
+
+        print("ASG demo: no API key required, zero cost, zero setup.")
+        print(f"Dashboard:    http://127.0.0.1:{args.port}/  (open this in a browser)")
+        run_demo()
+        print("\nDashboard is still live. Press Ctrl-C to exit.")
+        try:
+            while True:
+                import time
+
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
     elif args.subcommand == "benchmark":
         from self_governance.benchmark import run_benchmark
 

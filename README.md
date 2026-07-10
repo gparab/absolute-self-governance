@@ -9,6 +9,12 @@ This project implements the theoretical framework for **Absolute Self-Governance
 
 ```bash
 pipx install absolute-self-governance
+self-governance demo         # no API key, no cost, no setup — see it work in 30 seconds
+```
+
+`demo` computes real team-sizing math for a trivial task vs. a complex one (1 agent vs. 9, via the same `dimension_swarm` logic production traffic uses) and opens a live dashboard — zero API key, zero spend. Once you have a Gemini key:
+
+```bash
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
 
