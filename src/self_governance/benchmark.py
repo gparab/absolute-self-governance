@@ -1,8 +1,10 @@
 import os
 import json
+import tempfile
 import time
 import logging
-from typing import List, Dict, Any, Optional
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Callable, List, Dict, Any, Optional
 from self_governance.models import Agent
 
 logger = logging.getLogger("self_governance.benchmark")
@@ -160,3 +162,88 @@ def run_asg_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
     }
+
+
+def _run_one_isolated(
+    task: Dict[str, Any], mode: str, rep: int, api_key: Optional[str]
+) -> Dict[str, Any]:
+    """Run a single (task, mode, rep) unit in its own process and its own
+    tempdir. Runs in a ProcessPoolExecutor worker -- must be a top-level,
+    picklable function, and cwd isolation is why this is process-based
+    rather than thread-based: os.chdir() is process-global in Python, so
+    threads sharing one process cannot each have their own working
+    directory. Without this, concurrent reps of the same task would race
+    on the same target_file / bench_test_*.py filenames.
+    """
+    workdir = tempfile.mkdtemp(prefix="asg_bench_")
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(workdir)
+        mode_fn = run_baseline_mode if mode == "baseline" else run_asg_mode
+        try:
+            result = mode_fn(task, api_key)
+        except Exception as e:
+            result = {
+                "passed": False,
+                "latency_sec": 0.0,
+                "estimated_cost_usd": 0.0,
+                "error": str(e),
+            }
+    finally:
+        os.chdir(prev_cwd)
+        import shutil
+
+        shutil.rmtree(workdir, ignore_errors=True)
+    return {"task_id": task["id"], "mode": mode, "rep": rep, "result": result}
+
+
+def run_benchmark_parallel(
+    api_key: Optional[str] = None,
+    reps: int = 5,
+    workers: int = 4,
+    on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Dict[str, Any]:
+    """Run the benchmark across multiple repetitions, concurrently, each
+    repetition isolated in its own process and working directory.
+
+    Separate from run_benchmark() deliberately: that function is the
+    simple, sequential, in-process default used by `self-governance
+    benchmark` and covered by tests that monkeypatch GeminiExecutionAdapter
+    at the class level -- a monkeypatch in the parent test process does not
+    reach child processes spawned by ProcessPoolExecutor, so this path
+    cannot be made a drop-in replacement without breaking that test's
+    ability to mock network calls. Use this function when you actually
+    want a real, larger sweep against a real API key.
+
+    on_result, if given, is called after each individual (task, mode, rep)
+    completes -- e.g. to persist incremental progress to disk, since a
+    large sweep can run for a long time and losing all progress on a crash
+    partway through is a real, previously-experienced cost, not a
+    hypothetical one.
+    """
+    workers = max(1, min(workers, 16))
+    tasks = load_benchmark_tasks()
+
+    units = [
+        (task, mode, rep)
+        for task in tasks
+        for mode in ("baseline", "asg")
+        for rep in range(reps)
+    ]
+
+    results: Dict[str, Any] = {
+        t["id"]: {"name": t["name"], "baseline": [], "asg": []} for t in tasks
+    }
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(_run_one_isolated, task, mode, rep, api_key)
+            for task, mode, rep in units
+        ]
+        for future in as_completed(futures):
+            outcome = future.result()
+            results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
+            if on_result is not None:
+                on_result(outcome)
+
+    return results
