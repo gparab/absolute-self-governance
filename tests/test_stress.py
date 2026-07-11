@@ -124,6 +124,13 @@ def test_nudger_concurrency_stress():
             time.sleep(0.1)
 
         assert watcher_thread.is_alive(), "Watcher thread crashed or stopped!"
+
+        # Stop the watcher and wait for it before TemporaryDirectory cleanup:
+        # a still-running watcher writes into the tree mid-delete, and the
+        # resulting rmdir race ("Directory not empty") flakes on slow runners.
+        nudger.stop()
+        watcher_thread.join(timeout=5.0)
+
         assert success, "Nudger failed to recover or process the final COMPLETED state!"
 
 
