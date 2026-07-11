@@ -1,0 +1,5 @@
+{
+  "name": "sqlite_concurrency",
+  "description": "Protects SQLite against concurrent write lock contention.",
+  "instructions": "Ensure you use write locks and retry on SQLITE_BUSY errors immediately."
+}

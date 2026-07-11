@@ -29,6 +29,8 @@ self-governance dev          # watches ./handoff.md, live monitor at http://127.
     - [Information Theory & Shannon Entropy](#information-theory--shannon-entropy-context)
     - [Dynamic SDLC Dimensioning Model](#dynamic-sdlc-dimensioning-model)
     - [Thermal Escape & Threshold Decay (TETD) Consensus](#thermal-escape--threshold-decay-tetd-consensus)
+    - [Practical Byzantine Fault Tolerance (PBFT) Consensus](#practical-byzantine-fault-tolerance-pbft-consensus)
+    - [Enhanced Gossip Protocol & Anti-Entropy Merge](#enhanced-gossip-protocol--anti-entropy-merge)
 3. [Architecture and State Machine](#3-architecture-and-state-machine)
     - [Continuous Nudger Watcher](#continuous-nudger-watcher)
     - [Transition Flow Lifecycle](#transition-flow-lifecycle)
@@ -137,6 +139,28 @@ During each iteration $k$, the simulated voting score for each agent is generate
   $$\text{Escape} = | \eta \times T_k |, \quad \eta \sim \text{Uniform}(-0.01, 0.01)$$
 
 The average score is evaluated. If the average score of all candidates matches or exceeds $\tau_k$, consensus is reached, and all candidates with individual scores $\ge \tau_k$ are approved. To guarantee termination, a safety cap breaks execution at $1000$ iterations.
+
+### Practical Byzantine Fault Tolerance (PBFT) Consensus
+
+For highly consistent, transaction-like operational agreement (e.g., commit phase execution logs), the system provides `PBFTConsensusEngine`. It tolerates arbitrary (Byzantine) node failures up to $f$ in a network size $N$:
+
+$$N \ge 3f + 1$$
+
+Agreement requires going through three phases:
+1. **Pre-prepare**: Leader proposes sequence number/term.
+2. **Prepare**: Nodes broadcast prepare messages. Quorum is reached once $2f$ prepare votes are accumulated, transitioning to `Prepared`.
+3. **Commit**: Nodes broadcast commit votes. Agreement is finalized once $2f + 1$ commit votes are collected, committing the state change.
+
+It also integrates Raft-style log consistency checking (`append_entries`), validating term, index, and pruning conflicting logs before updates.
+
+### Enhanced Gossip Protocol & Anti-Entropy Merge
+
+State replication between decentralized peers is managed by `EnhancedGossipProtocol` using:
+1. **Time-To-Live (TTL)**: Messages are broadcast with a step-down TTL hop limit to bound routing overhead.
+2. **BoundedSet Cache**: Replicas maintain a sliding-window message deduplication cache to prevent memory leaks and redundant processing.
+3. **Anti-Entropy Merge**: Replicas periodically sync state using digests, resolving version mismatches by merging the latest state entries:
+
+$$\text{state}[key] = \max(\text{version}_{\text{local}}, \text{version}_{\text{peer}})$$
 
 ---
 
@@ -317,6 +341,57 @@ swarm_config = dimension_swarm(requirement_vector, transition_matrix)
 # Print serialized Appendix D JSON
 import json
 print(json.dumps(swarm_config.dict(), indent=2))
+```
+
+#### 4. Save and Restore Sessions (CLI)
+
+The CLI supports serializing and restoring the complete orchestrator session state (wallet costs, active topologies, pending milestones, and metadata) to and from a JSON file.
+
+##### Save Session
+To serialize the active session to a JSON file:
+```bash
+self-governance session-save --file my_session.json --workdir .
+```
+
+##### Restore Session
+To restore the session, which **overwrites the active database state** (milestones, token usage, and agent memories):
+```bash
+self-governance session-restore --file my_session.json --workdir .
+```
+
+##### Output JSON Structure
+```json
+{
+  "wallet": {
+    "spent": 0.0456,
+    "max_budget": 0.50
+  },
+  "active_topologies": [
+    {
+      "key": "topology_key",
+      "agent_id": "agent_1",
+      "value": "MESH"
+    }
+  ],
+  "pending_milestones": [
+    {
+      "id": 1,
+      "name": "Phase 1: Setup",
+      "status": "COMPLETED",
+      "dependencies": "[]"
+    }
+  ],
+  "cached_metadata": {
+    "memories": [
+      {
+        "key": "mem_key",
+        "agent_id": "agent_1",
+        "value": "stored_value"
+      }
+    ],
+    "saved_at": "2026-07-11T05:00:00Z"
+  }
+}
 ```
 
 ---

@@ -189,3 +189,70 @@ def test_advisor_nudge_and_capping():
     assert advisor_res["stop_reason"] == "max_tokens"
     assert "truncated" in advisor_res["output"]
 
+
+def test_consensus_result_dataclass_compatibility():
+    from self_governance.consensus import ConsensusResult
+    from dataclasses import FrozenInstanceError
+
+    res = ConsensusResult(
+        approved_roster=["agent_A", "agent_B"],
+        final_temperature=1.2,
+        final_threshold=8.5,
+        prompt_tokens=100,
+        completion_tokens=50
+    )
+
+    # 1. Attribute access
+    assert res.approved_roster == ["agent_A", "agent_B"]
+    assert res.final_temperature == 1.2
+    assert res.final_threshold == 8.5
+    assert res.prompt_tokens == 100
+    assert res.completion_tokens == 50
+
+    # 2. Tuple unpacking
+    approved, temp, threshold = res
+    assert approved == ["agent_A", "agent_B"]
+    assert temp == 1.2
+    assert threshold == 8.5
+
+    # 3. Indexing
+    assert res[0] == ["agent_A", "agent_B"]
+    assert res[1] == 1.2
+    assert res[2] == 8.5
+    assert len(res) == 3
+
+    # 4. Immutability / Frozen check
+    with pytest.raises(FrozenInstanceError):
+        res.prompt_tokens = 200  # type: ignore
+
+
+def test_consensus_engine_llm_score_parsing():
+    from self_governance.consensus import ConsensusEngine
+
+    engine = ConsensusEngine(initial_roster=["agent_A"])
+
+    # 1. Valid JSON format
+    score, reason = engine._parse_llm_score('{"score": 8.5, "reason": "Excellent match"}')
+    assert score == 8.5
+    assert reason == "Excellent match"
+
+    # 2. Missing reason in JSON
+    score, reason = engine._parse_llm_score('{"score": 9.2}')
+    assert score == 9.2
+    assert reason == "No justification provided."
+
+    # 3. Legacy "Score: X Reason: Y" format
+    score, reason = engine._parse_llm_score("Score: 6.8 Reason: Lacks sqlite concurrency skills")
+    assert score == 6.8
+    assert reason == "Lacks sqlite concurrency skills"
+
+    # 4. Pure float score format
+    score, reason = engine._parse_llm_score("7.2")
+    assert score == 7.2
+    assert reason == "No justification provided."
+
+    # 5. Invalid format / exception fallback
+    score, reason = engine._parse_llm_score("Invalid response text")
+    assert score == 7.5
+    assert reason == "No justification provided."
+

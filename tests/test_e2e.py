@@ -107,7 +107,7 @@ def test_dimensioning_json_schema():
     assert isinstance(data["swarm"], list)
     for item in data["swarm"]:
         assert isinstance(item, dict)
-        assert set(item.keys()) == {"role", "prompt", "capabilities"}
+        assert set(item.keys()) == {"role", "prompt", "capabilities", "quality_gate", "developer_message"}
 
 
 def test_dimensioning_zero_requirements():
@@ -218,9 +218,10 @@ def test_consensus_roster_selection():
 
 
 def test_nudger_detect_completed(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text("status: COMPLETED\ncandidates:\n  - agent_A\n")
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -243,9 +244,10 @@ def test_nudger_detect_completed(tmp_path):
 
 
 def test_nudger_ignore_other_status(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text("status: IN_PROGRESS\n")
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -263,6 +265,7 @@ def test_nudger_ignore_other_status(tmp_path):
 
 
 def test_nudger_roster_log_append(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -281,6 +284,7 @@ def test_nudger_roster_log_append(tmp_path):
 
 
 def test_nudger_prompt_draft_creation(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -292,6 +296,7 @@ def test_nudger_prompt_draft_creation(tmp_path):
 
 
 def test_nudger_working_directory_init(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     dir_a = tmp_path / "dir_a"
@@ -452,6 +457,7 @@ def test_consensus_negative_gamma_delta():
 
 
 def test_nudger_missing_handoff_file(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -462,7 +468,7 @@ def test_nudger_missing_handoff_file(tmp_path):
     time.sleep(0.5)
     assert t.is_alive()
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text("status: COMPLETED\ncandidates:\n  - agent_A\n")
 
     log_file = tmp_path / "roster_rotation_log.md"
@@ -477,9 +483,10 @@ def test_nudger_missing_handoff_file(tmp_path):
 
 
 def test_nudger_empty_handoff_file(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text("")
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -492,9 +499,10 @@ def test_nudger_empty_handoff_file(tmp_path):
 
 
 def test_nudger_malformed_handoff_content(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text(":::malformed:::\nthis is not YAML")
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -507,6 +515,7 @@ def test_nudger_malformed_handoff_content(tmp_path):
 
 
 def test_nudger_roster_rotation_log_locked(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -526,9 +535,10 @@ def test_nudger_roster_rotation_log_locked(tmp_path):
 
 
 def test_nudger_concurrent_modification(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text("status: IN_PROGRESS\n")
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -558,9 +568,10 @@ def test_nudger_concurrent_modification(tmp_path):
 
 
 def test_cross_feature_nudger_triggers_consensus(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text(
         "status: COMPLETED\ncandidates:\n  - agent_X\n  - agent_Y\n"
     )
@@ -611,9 +622,10 @@ def test_cross_feature_consensus_feeds_dimensioning():
 
 
 def test_cross_feature_full_cycle(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text(
         "status: COMPLETED\ncandidates:\n  - agent_1\n  - agent_2\n"
     )
@@ -674,6 +686,7 @@ def test_workload_unstable_consensus():
 
 
 def test_workload_repeated_succession_sessions(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -718,6 +731,7 @@ def test_workload_complex_dimensioning():
 
 
 def test_workload_recovery_on_failed_iteration(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
 
     log_file = tmp_path / "roster_rotation_log.md"

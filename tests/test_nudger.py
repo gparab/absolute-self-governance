@@ -3,7 +3,9 @@ import time
 import yaml
 import pytest
 import threading
+from typing import Optional, Any
 from self_governance.nudger import ContinuousNudger
+from self_governance.models import SessionStatus
 
 
 class ExceptionRaisingNudger(ContinuousNudger):
@@ -11,13 +13,19 @@ class ExceptionRaisingNudger(ContinuousNudger):
         super().__init__(working_directory)
         self.call_count = 0
 
-    def trigger_succession(self, handoff_content: str):
+    def trigger_succession(
+        self,
+        handoff_content: str,
+        adapter: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Any:
         self.call_count += 1
         raise ValueError("Simulated succession error")
 
 
 def test_nudger_exception_does_not_retry(tmp_path):
-    handoff_file = tmp_path / "handoff.md"
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     # Write a completed status
     handoff_file.write_text("status: COMPLETED\ncandidates:\n  - agent_A\n")
 
@@ -38,6 +46,7 @@ def test_nudger_exception_does_not_retry(tmp_path):
 
 
 def test_nudger_trigger_succession_invalid_yaml(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """Cover the ValueError path when safe_load fails on malformed YAML."""
     nudger = ContinuousNudger(working_directory=str(tmp_path))
     with pytest.raises(ValueError, match="Malformed YAML"):
@@ -45,6 +54,7 @@ def test_nudger_trigger_succession_invalid_yaml(tmp_path):
 
 
 def test_nudger_trigger_succession_non_dict(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """Cover the ValueError path when YAML parses but is not a dictionary."""
     nudger = ContinuousNudger(working_directory=str(tmp_path))
     with pytest.raises(ValueError, match="Handoff content must be a dictionary"):
@@ -52,6 +62,7 @@ def test_nudger_trigger_succession_non_dict(tmp_path):
 
 
 def test_nudger_trigger_succession_missing_candidates(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """Cover the KeyError path when candidates key is missing."""
     nudger = ContinuousNudger(working_directory=str(tmp_path))
     with pytest.raises(KeyError, match="'candidates'"):
@@ -59,6 +70,7 @@ def test_nudger_trigger_succession_missing_candidates(tmp_path):
 
 
 def test_nudger_trigger_succession_candidates_not_list(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """Cover the TypeError path when candidates key is not a list."""
     nudger = ContinuousNudger(working_directory=str(tmp_path))
     with pytest.raises(TypeError, match="'candidates' must be a list"):
@@ -66,12 +78,13 @@ def test_nudger_trigger_succession_candidates_not_list(tmp_path):
 
 
 def test_nudger_transient_failure_lockout(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """
     Verify the transient failure bug where a write error in trigger_succession
     does NOT permanently block future processing of the same handoff file content.
     """
     nudger = ContinuousNudger(working_directory=str(tmp_path))
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     log_file = tmp_path / "roster_rotation_log.md"
 
     # Set up a valid handoff file
@@ -102,12 +115,13 @@ def test_nudger_transient_failure_lockout(tmp_path):
 
 
 def test_nudger_candidate_expansion_dos(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     """Verify performance characteristics under large candidate counts."""
     nudger = ContinuousNudger(working_directory=str(tmp_path))
 
     # 20k candidates (triggers LazyList expansion via json.dumps)
     candidates = [f"agent_{i}" for i in range(20000)]
-    content = yaml.dump({"status": "COMPLETED", "candidates": candidates})
+    content = yaml.dump({"status": SessionStatus.COMPLETED.value, "candidates": candidates})
 
     start_time = time.time()
     nudger.trigger_succession(content)
@@ -119,10 +133,11 @@ def test_nudger_candidate_expansion_dos(tmp_path):
 
 
 def test_nudger_busy_loop_prevention(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from unittest.mock import patch
     import yaml
 
-    handoff_file = tmp_path / "handoff.md"
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     nudger = ContinuousNudger(working_directory=str(tmp_path))
 
     # 1. Test with status: IN_PROGRESS
@@ -147,7 +162,8 @@ def test_nudger_busy_loop_prevention(tmp_path):
     # 2. Test with malformed YAML
     tmp_path2 = tmp_path / "subdir"
     tmp_path2.mkdir()
-    handoff_file2 = tmp_path2 / "handoff.md"
+    (tmp_path2 / ".planning").mkdir(parents=True, exist_ok=True)
+    handoff_file2 = tmp_path2 / ".planning/CURRENT_STATE.md"
     handoff_file2.write_text("[\n")
 
     nudger2 = ContinuousNudger(working_directory=str(tmp_path2))
@@ -169,6 +185,7 @@ def test_nudger_busy_loop_prevention(tmp_path):
 
 
 def test_nudger_large_swarm_stream_serialization(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     import io
     import json
     from self_governance.nudger import write_swarm_config_to_stream
@@ -197,6 +214,7 @@ def test_nudger_large_swarm_stream_serialization(tmp_path):
 
 
 def test_nudger_propagates_critical_exceptions(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from unittest.mock import patch
 
     nudger = ContinuousNudger(working_directory=str(tmp_path))
@@ -204,7 +222,7 @@ def test_nudger_propagates_critical_exceptions(tmp_path):
     # Force open/read to raise KeyboardInterrupt
     with patch("builtins.open", side_effect=KeyboardInterrupt):
         # Create a handoff file so os.path.exists returns True
-        handoff_file = tmp_path / "handoff.md"
+        handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
         handoff_file.write_text("dummy")
 
         with pytest.raises(KeyboardInterrupt):

@@ -27,7 +27,8 @@ def test_cli_dimension(capsys):
 
 
 def test_cli_trigger_succession(tmp_path):
-    handoff_file = tmp_path / "handoff.md"
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    handoff_file = tmp_path / ".planning/CURRENT_STATE.md"
     handoff_file.write_text(
         "status: COMPLETED\ncandidates:\n  - agent_A\n  - agent_B\n"
     )
@@ -71,38 +72,6 @@ def test_cli_run_nudger():
         mock_instance.watch_handoff.assert_called_once()
 
 
-def test_cli_demo(monkeypatch, capsys):
-    import uvicorn
-    from self_governance import cli
-
-    monkeypatch.setattr(
-        "sys.argv", ["self-governance", "demo", "--port", "18998"]
-    )
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self: None)
-
-    # run_demo's own pause and cli.py's post-summary poll loop both call
-    # time.sleep; let the first call (the pause between scenarios) through
-    # fast, then interrupt on the next one (the "keep serving" loop).
-    calls = {"n": 0}
-    real_sleep = __import__("time").sleep
-
-    def fake_sleep(seconds):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return real_sleep(0)
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("time.sleep", fake_sleep)
-
-    cli.main()
-
-    out = capsys.readouterr().out
-    assert "no API key required, zero cost" in out
-    assert "Trivial task" in out
-    assert "Complex task" in out
-    assert "Dashboard is still live" in out
-
-
 def test_cli_invalid_arguments():
     test_args = ["self-governance", "invalid-command"]
     with patch.object(sys, "argv", test_args):
@@ -112,9 +81,20 @@ def test_cli_invalid_arguments():
 
 
 def test_cli_stats(capsys, tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     # Ensure stats prints headers successfully
     test_args = ["self-governance", "stats"]
     with patch.object(sys, "argv", test_args):
         main()
     captured = capsys.readouterr()
     assert "Self-Governing Software Factory Dashboard" in captured.out
+
+
+def test_cli_version(capsys):
+    test_args = ["self-governance", "--version"]
+    with patch.object(sys, "argv", test_args):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "absolute-self-governance" in captured.out

@@ -40,15 +40,17 @@ def test_models_coverage_boost():
         del agent["invalid"]
 
     # Keys, values, items, iter, len
-    assert agent.keys() == ["role", "prompt", "capabilities"]
-    assert agent.values() == ["NewTester", "Test Prompt", ["a"]]
+    assert agent.keys() == ["role", "prompt", "capabilities", "quality_gate", "developer_message"]
+    assert agent.values() == ["NewTester", "Test Prompt", ["a"], None, None]
     assert agent.items() == [
         ("role", "NewTester"),
         ("prompt", "Test Prompt"),
         ("capabilities", ["a"]),
+        ("quality_gate", None),
+        ("developer_message", None),
     ]
-    assert list(agent) == ["role", "prompt", "capabilities"]
-    assert len(agent) == 3
+    assert list(agent) == ["role", "prompt", "capabilities", "quality_gate", "developer_message"]
+    assert len(agent) == 5
     assert agent.model_dump() == agent.dict()
 
     # 2. SwarmConfig dict mapping coverage

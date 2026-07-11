@@ -1,5 +1,6 @@
 import os
 import pytest
+from self_governance.models import SessionStatus
 from self_governance.learning import (
     get_learning_state,
     track_learning_feedback,
@@ -50,6 +51,7 @@ def test_learning_feedback_security_alert():
 
 
 def test_learning_loop_tunes_dimensioning(tmp_path, monkeypatch):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     from self_governance.nudger import ContinuousNudger
     from self_governance.config import OrchestratorConfig
     from unittest.mock import MagicMock
@@ -60,6 +62,9 @@ def test_learning_loop_tunes_dimensioning(tmp_path, monkeypatch):
     mock_consensus.return_value.approved_roster = ["Backend Wizard"]
     mock_consensus.return_value.prompt_tokens = 0
     mock_consensus.return_value.completion_tokens = 0
+    mock_consensus.return_value.final_temperature = 1.0
+    mock_consensus.return_value.final_threshold = 0.9
+    mock_consensus.return_value.cycles_needed = 1
     monkeypatch.setattr("self_governance.nudger.run_consensus", mock_consensus)
 
     config = OrchestratorConfig()
@@ -71,11 +76,11 @@ def test_learning_loop_tunes_dimensioning(tmp_path, monkeypatch):
     ]
 
     nudger = ContinuousNudger(working_directory=str(tmp_path), config=config)
-    handoff_path = os.path.join(str(tmp_path), "handoff.md")
+    handoff_path = os.path.join(str(tmp_path), ".planning/CURRENT_STATE.md")
 
     # 1. Run baseline succession (scale_factor is 1.0)
     with open(handoff_path, "w", encoding="utf-8") as f:
-        yaml.dump({"status": "COMPLETED", "candidates": ["Backend Wizard"]}, f)
+        yaml.dump({"status": SessionStatus.COMPLETED.value, "candidates": ["Backend Wizard"]}, f)
 
     # Track baseline counts
     nudger.process_handoff()
@@ -95,6 +100,16 @@ def test_learning_loop_tunes_dimensioning(tmp_path, monkeypatch):
 
     with open(prompt_path, "r", encoding="utf-8") as f:
         tuned_content = f.read()
+
+    backend_prompt_path = os.path.join(str(tmp_path), "prompt_draft_backend.md")
+    if os.path.exists(backend_prompt_path):
+        with open(backend_prompt_path, "r", encoding="utf-8") as f:
+            tuned_content += "\n" + f.read()
+            
+    frontend_prompt_path = os.path.join(str(tmp_path), "prompt_draft_frontend.md")
+    if os.path.exists(frontend_prompt_path):
+        with open(frontend_prompt_path, "r", encoding="utf-8") as f:
+            tuned_content += "\n" + f.read()
 
     # Tuned run should have scale_factor applied to dimensioning matrix weights
     assert "Security Auditor" in baseline_content or "Security Auditor" in tuned_content

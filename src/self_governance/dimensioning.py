@@ -1,3 +1,10 @@
+"""SDLC subagent swarm dimensioning module.
+
+Calculates the optimal swarm size and distribution of roles (e.g. Backend Wizard,
+QA Specialist, Security Auditor) based on requirement complexity using transition
+matrices and Shannon entropy scaling, returning a memory-efficient LazyList.
+"""
+
 import bisect
 import math
 from typing import List, Optional, Union, Iterator, overload
@@ -6,9 +13,10 @@ from self_governance.models import Agent, SwarmConfig
 
 
 class LazyList(Sequence[Agent]):
-    """
-    A memory-efficient, immutable sequence implementation that dynamically instantiates
-    Agent objects on-demand rather than keeping them in memory.
+    """A memory-efficient, immutable sequence implementation.
+
+    Dynamically instantiates Agent objects on-demand using binary search over
+    prefix sums rather than keeping them instantiated in memory.
     """
 
     def __init__(
@@ -17,8 +25,7 @@ class LazyList(Sequence[Agent]):
         total_count: int,
         capabilities: Optional[List[str]] = None,
     ) -> None:
-        """
-        Initialize LazyList.
+        """Initializes the LazyList.
 
         Args:
             prefix_sums: Cumulative sums of agent counts per role to allow binary search.
@@ -30,7 +37,11 @@ class LazyList(Sequence[Agent]):
         self._capabilities = capabilities or []
 
     def __len__(self) -> int:
-        """Return the total number of agents."""
+        """Returns the total number of agents.
+
+        Returns:
+            The total count of agents.
+        """
         return self._total_count
 
     @overload
@@ -40,8 +51,7 @@ class LazyList(Sequence[Agent]):
     def __getitem__(self, idx: slice) -> List[Agent]: ...
 
     def __getitem__(self, idx: Union[int, slice]) -> Union[Agent, List[Agent]]:
-        """
-        Retrieve agent(s) at the given index or slice.
+        """Retrieves agent(s) at the given index or slice.
 
         Args:
             idx: An integer index or a slice object.
@@ -92,7 +102,11 @@ class LazyList(Sequence[Agent]):
         )
 
     def __iter__(self) -> Iterator[Agent]:
-        """Iterate over all agents in the list."""
+        """Iterate over all agents in the list.
+
+        Yields:
+            Agent: The next Agent instance in the sequence.
+        """
         for i in range(self._total_count):
             yield self[i]
 
@@ -100,10 +114,10 @@ class LazyList(Sequence[Agent]):
 def dimension_swarm(
     requirement_vector: List[float], transition_matrix: List[List[float]]
 ) -> SwarmConfig:
-    """
-    Compute the optimal subagent swarm configuration based on a dynamic scaling model.
+    """Compute the optimal subagent swarm configuration based on a dynamic scaling model.
 
-    S_t = round(W * R_t), where R_t is a requirement vector and W is a transition matrix.
+    S_t = round(W * R_t * (1 + H(R_t))), where R_t is a requirement vector,
+    W is a transition matrix, and H(R_t) is the Shannon entropy of requirements.
 
     Args:
         requirement_vector: Feature requirement vector of length N.
@@ -180,6 +194,34 @@ def dimension_swarm(
     if len(requirement_vector) > 2 and requirement_vector[2] > 0.0:
         resolved_caps.append("pytest_coverage")
 
-    # 5. Return SwarmConfig wrapping LazyList
+    # 5. Check if we should bifurcate (Hierarchical Swarming)
+    total_complexity = sum(counts)
+    if total_complexity > 5 or entropy > 1.0:
+        # Hierarchical scale triggered
+        # For demonstration of Path C, we split the requirement vector into domains
+        frontend_req = [requirement_vector[0], 0.0] + (requirement_vector[2:] if len(requirement_vector) > 2 else [])
+        backend_req = [0.0, requirement_vector[1] if len(requirement_vector) > 1 else 0.0] + (requirement_vector[2:] if len(requirement_vector) > 2 else [])
+        
+        frontend_counts = [round(max(0.0, sum(w * r for w, r in zip(row, frontend_req))) * (1.0 + entropy)) for row in transition_matrix]
+        backend_counts = [round(max(0.0, sum(w * r for w, r in zip(row, backend_req))) * (1.0 + entropy)) for row in transition_matrix]
+
+        
+        fe_prefix, fe_sum = [], 0
+        for c in frontend_counts:
+            fe_sum += c
+            fe_prefix.append(fe_sum)
+            
+        be_prefix, be_sum = [], 0
+        for c in backend_counts:
+            be_sum += c
+            be_prefix.append(be_sum)
+            
+        return SwarmConfig(LazyList(prefix_sums, current_sum, capabilities=resolved_caps), hierarchical_swarms={
+            "frontend": SwarmConfig(LazyList(fe_prefix, fe_sum, capabilities=resolved_caps)),
+            "backend": SwarmConfig(LazyList(be_prefix, be_sum, capabilities=resolved_caps))
+        })
+
+    # 6. Return single SwarmConfig wrapping LazyList
     lazy_swarm = LazyList(prefix_sums, current_sum, capabilities=resolved_caps)
     return SwarmConfig(lazy_swarm)
+

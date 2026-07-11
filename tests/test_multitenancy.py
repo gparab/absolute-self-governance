@@ -9,6 +9,7 @@ from self_governance.db import (
     SessionLocal,
 )
 from self_governance.billing import record_usage
+from self_governance.models import SessionStatus
 from self_governance.github_app import app
 
 
@@ -49,14 +50,14 @@ def test_db_tenant_isolation():
 
     # Save session for tenantA
     sess_a = SuccessionSession(
-        tenant_id="tenantA", status="COMPLETED", approved_roster="agent_dev"
+        tenant_id="tenantA", status=SessionStatus.COMPLETED.value, approved_roster="agent_dev"
     )
     db.add(sess_a)
     db.commit()
 
     # Save session for tenantB
     sess_b = SuccessionSession(
-        tenant_id="tenantB", status="PENDING", approved_roster="agent_tester"
+        tenant_id="tenantB", status=SessionStatus.PENDING.value, approved_roster="agent_tester"
     )
     db.add(sess_b)
     db.commit()
@@ -74,10 +75,10 @@ def test_db_tenant_isolation():
     )
 
     assert len(a_sessions) == 1
-    assert a_sessions[0].status == "COMPLETED"
+    assert a_sessions[0].status == SessionStatus.COMPLETED.value
 
     assert len(b_sessions) == 1
-    assert b_sessions[0].status == "PENDING"
+    assert b_sessions[0].status == SessionStatus.PENDING.value
     db.close()
 
 

@@ -10,7 +10,7 @@ def test_config_defaults():
     assert config.consensus_initial_temperature == 1.0
     assert config.consensus_temperature_step == 0.1
     assert config.consensus_decay_step == 0.5
-    assert config.handoff_file == "handoff.md"
+    assert config.handoff_file == ".planning/CURRENT_STATE.md"
     assert config.prompt_file == "prompt_draft.md"
     assert config.roster_log_file == "roster_rotation_log.md"
     assert config.default_matrix == [[1.0, 0.5], [0.0, 1.0]]

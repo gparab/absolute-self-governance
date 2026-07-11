@@ -8,6 +8,7 @@ import os
 import time
 from self_governance.consensus import run_consensus
 from self_governance.gemini_adapter import GeminiExecutionAdapter
+from self_governance.billing import calculate_cost
 
 ROSTER = ["backend_engineer", "security_auditor", "test_engineer", "doc_writer"]
 
@@ -16,7 +17,7 @@ start = time.time()
 res = run_consensus(ROSTER, seed=42, adapter=adapter)
 elapsed = time.time() - start
 
-cost = (res.prompt_tokens * 0.000000075) + (res.completion_tokens * 0.00000030)
+cost = calculate_cost(res.prompt_tokens, res.completion_tokens)
 print(json.dumps({
     "roster": ROSTER,
     "approved_roster": res.approved_roster,

@@ -6,11 +6,12 @@ from fastapi.testclient import TestClient
 from self_governance.github_app import app
 from self_governance.learning import LEARNING_STATE_FILE
 import os
+from typing import Optional, Any
 
 client = TestClient(app)
 
 
-def signed_post(payload: dict, event: str, extra_headers: dict = None):
+def signed_post(payload: dict, event: str, extra_headers: Optional[dict[Any, Any]] = None):
     """POST /webhook with a valid HMAC signature for the test secret."""
     body = json.dumps(payload).encode()
     sig = hmac.new(
@@ -38,6 +39,7 @@ def test_webhook_ping():
 
 
 def test_webhook_issue_opened(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     # Mock working directory where handoff is written
     payload = {
         "action": "opened",
@@ -55,7 +57,7 @@ def test_webhook_issue_opened(tmp_path):
 
     with patch("self_governance.github_app.nudger.working_directory", str(tmp_path)):
         # Write candidates file in the mocked directory
-        handoff_path = os.path.join(str(tmp_path), "handoff.md")
+        handoff_path = os.path.join(str(tmp_path), ".planning/CURRENT_STATE.md")
         with open(handoff_path, "w") as f:
             f.write("status: COMPLETED\ncandidates:\n  - agent_1\n")
 
@@ -130,17 +132,68 @@ def test_webhook_hmac_verification(monkeypatch):
     assert response.json() == {"status": "ok", "msg": "pong"}
 
 
-def test_webhook_mandatory_secret(monkeypatch):
+def test_webhook_mandatory_secret():
+    import subprocess
     import sys
+    import os
+    cmd = [sys.executable, "-c", "import self_governance.github_app"]
+    env = os.environ.copy()
+    env.pop("WEBHOOK_SECRET", None)
+    env["TESTING"] = "False"
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "ValueError: WEBHOOK_SECRET environment variable is required" in result.stderr
 
-    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
-    monkeypatch.setenv("TESTING", "False")
 
-    # Remove from sys.modules if already imported
-    if "self_governance.github_app" in sys.modules:
-        del sys.modules["self_governance.github_app"]
+def test_webhook_non_dict_payload():
+    # Test that a list payload raises 400 with "Invalid structure"
+    body_data = b"[]"
+    import hmac
+    import hashlib
+    import os
+    secret = os.environ.get("WEBHOOK_SECRET", "dummy_secret")
+    sig = hmac.new(
+        secret.encode(), body_data, hashlib.sha256
+    ).hexdigest()
+    
+    response = client.post(
+        "/webhook",
+        content=body_data,
+        headers={
+            "X-GitHub-Event": "issues",
+            "X-Hub-Signature-256": f"sha256={sig}",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid structure"
 
-    with pytest.raises(
-        ValueError, match="WEBHOOK_SECRET environment variable is required"
-    ):
-        import self_governance.github_app  # noqa: F401
+
+def test_webhook_pr_none_safety():
+    payload = {
+        "action": "closed",
+        "pull_request": {
+            "merged": True,
+            "created_at_timestamp": None,
+            "closed_at_timestamp": None,
+            "title": "Fix security vulnerability CVE-1234",
+        },
+    }
+    response = signed_post(payload, "pull_request")
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_webhook_pr_invalid_timestamp_types():
+    payload = {
+        "action": "closed",
+        "pull_request": {
+            "merged": True,
+            "created_at_timestamp": "invalid_date",
+            "closed_at_timestamp": "invalid_date",
+            "title": "Clean code styling",
+        },
+    }
+    response = signed_post(payload, "pull_request")
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+

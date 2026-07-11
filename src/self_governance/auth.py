@@ -1,8 +1,15 @@
+"""Authentication and authorization middleware module.
+
+Handles tenant identification, token verification, context binding,
+and rate-limiting using database backing.
+"""
+
 import contextvars
 import hmac
 import hashlib
 import os
 import time
+import secrets
 from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -21,21 +28,88 @@ ALLOW_GUEST_ACCESS = os.getenv("ALLOW_GUEST_ACCESS", "False").lower() in (
 
 
 def get_current_tenant_id() -> str:
+    """Retrieves the current tenant ID from contextvars.
+
+    Returns:
+        The active tenant identifier, or an empty string if not set.
+    """
     return tenant_id_var.get()
 
 
 def set_current_tenant_id(tenant_id: str) -> None:
+    """Sets the active tenant ID in contextvars.
+
+    Args:
+        tenant_id: The tenant identifier to bind to the current context.
+    """
     tenant_id_var.set(tenant_id)
 
 
+def verify_key(key: str, hashed: str) -> bool:
+    """Verifies a plaintext key against a hashed representation.
+
+    Supports both legacy SHA-256 and PBKDF2 formats.
+
+    Args:
+        key: The plaintext key to check.
+        hashed: The target hash string from storage.
+
+    Returns:
+        True if the key matches the hash, False otherwise.
+    """
+    if not hashed:
+        return False
+    if hashed.startswith("pbkdf2_sha256$"):
+        try:
+            parts = hashed.split("$")
+            if len(parts) != 4:
+                return False
+            _, iterations_str, salt, target_hash = parts
+            iterations = int(iterations_str)
+            computed_hash = hashlib.pbkdf2_hmac(
+                "sha256", key.encode("utf-8"), salt.encode("utf-8"), iterations
+            ).hex()
+            return hmac.compare_digest(computed_hash, target_hash)
+        except Exception:
+            return False
+    else:
+        # Fallback to legacy SHA-256
+        legacy_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(legacy_hash, hashed)
+
+
 def hash_key(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()
+    """Generates a secure PBKDF2 hash of a plaintext key.
+
+    Args:
+        key: The plaintext key to hash.
+
+    Returns:
+        A formatted string containing PBKDF2 hashing metadata and the hex digest.
+    """
+    iterations = 100000
+    salt = secrets.token_hex(8)
+    hash_val = hashlib.pbkdf2_hmac(
+        "sha256", key.encode("utf-8"), salt.encode("utf-8"), iterations
+    ).hex()
+    return f"pbkdf2_sha256${iterations}${salt}${hash_val}"
 
 
 async def authenticate_tenant(
     token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> Tenant:
-    """Authenticates API keys (OAuth2 Bearer token) and sets tenant context."""
+    """Authenticates API keys (OAuth2 Bearer token) and sets tenant context.
+
+    Args:
+        token: The bearer token string.
+        db: Database session for looking up the tenant.
+
+    Returns:
+        The authenticated Tenant object.
+
+    Raises:
+        HTTPException: If credentials are invalid, missing, or guest access is disabled.
+    """
     if not token:
         if ALLOW_GUEST_ACCESS:
             set_current_tenant_id("guest")
@@ -57,12 +131,7 @@ async def authenticate_tenant(
 
             tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
             if tenant:
-                # Reconstruct the expected plaintext prefix matching the db entry API key format
-                # and verify the HMAC signature / hash
-                presented_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-                if tenant.api_key_hash and hmac.compare_digest(
-                    str(tenant.api_key_hash), presented_hash
-                ):
+                if tenant.api_key_hash and verify_key(token, str(tenant.api_key_hash)):
                     set_current_tenant_id(str(tenant.id))
                     return tenant
 
@@ -76,7 +145,20 @@ RATE_LIMIT_WINDOW = 60.0  # 60 seconds
 def rate_limit_tenant(
     tenant: Tenant = Depends(authenticate_tenant), db: Session = Depends(get_db)
 ) -> Tenant:
-    """Enforces per-tenant rate limiting using database persistence."""
+    """Enforces per-tenant rate limiting using database persistence.
+
+    Locks the tenant row to serialize concurrent requests and checks window counts.
+
+    Args:
+        tenant: The authenticated Tenant whose rate limit is checked.
+        db: Database session.
+
+    Returns:
+        The same Tenant instance if within rate limits.
+
+    Raises:
+        HTTPException: If the requests count exceeds the allowed threshold.
+    """
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
 
@@ -112,3 +194,4 @@ def rate_limit_tenant(
     db.add(entry)
     db.commit()
     return tenant
+

@@ -4,7 +4,7 @@ Serves a live status page, JSON status, and Prometheus metrics on
 localhost only. This is a developer tool, not the production webhook app.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response
 from prometheus_client import REGISTRY, generate_latest, CONTENT_TYPE_LATEST
 from self_governance.learning import get_learning_state
@@ -13,6 +13,14 @@ dev_app = FastAPI(title="ASG Dev Monitor")
 
 
 def _metric_value(name: str) -> float:
+    """Helper to retrieve a Prometheus metric value by its name.
+
+    Args:
+        name: The name of the Prometheus metric to query.
+
+    Returns:
+        The current float value of the sample, or 0.0 if not found.
+    """
     for metric in REGISTRY.collect():
         for sample in metric.samples:
             if sample.name == name:
@@ -22,16 +30,31 @@ def _metric_value(name: str) -> float:
 
 @dev_app.get("/health")
 def health():
+    """Health check endpoint for the monitor app.
+
+    Returns:
+        A dictionary containing the status string "ok".
+    """
     return {"status": "ok"}
 
 
 @dev_app.get("/metrics")
 def metrics():
+    """Metrics endpoint exposing Prometheus metrics.
+
+    Returns:
+        FastAPI Response wrapping the Prometheus plain text payload.
+    """
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @dev_app.get("/status")
 def status():
+    """Exposes current ASG state and costs in a simple JSON payload.
+
+    Returns:
+        A dictionary of the runs metrics, tuning metrics, and session cost.
+    """
     state = get_learning_state()
     return {
         "runs_completed": state["runs_completed"],
@@ -104,4 +127,111 @@ setInterval(tick, 2000);
 
 @dev_app.get("/")
 def index():
+    """Index page exposing the HTML status page.
+
+    Returns:
+        HTMLResponse containing the live dashboard.
+    """
     return HTMLResponse(_PAGE)
+
+
+# === P2P Session Sharing Routes ===
+
+@dev_app.post("/api/p2p/share")
+async def p2p_create_share(request: Request):
+    """Create a share token for the current agent's session.
+
+    POST body (JSON):
+    {
+        "session_data": {...},   # dict of session state to share
+        "ttl_seconds": 300,      # optional, default 300
+        "created_by": "agent-A"  # optional identifier
+    }
+
+    Returns:
+        JSON with token, expires_at, fingerprint, and created_by on success.
+        JSON with error on 400 if the payload exceeds the size limit.
+    """
+    from self_governance.p2p import create_share_token
+    from fastapi.responses import JSONResponse
+
+    body = await request.json()
+    session_data = body.get("session_data", {})
+    ttl = int(body.get("ttl_seconds", 300))
+    created_by = str(body.get("created_by", "unknown"))
+    try:
+        token = create_share_token(session_data, ttl_seconds=ttl, created_by=created_by)
+        return JSONResponse({
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "fingerprint": token.fingerprint,
+            "created_by": token.created_by,
+        })
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@dev_app.get("/api/p2p/session/{token}")
+async def p2p_get_session(token: str, peek: bool = False):
+    """Retrieve a shared session by token.
+
+    By default the token is consumed on first use (one-time handoff semantics).
+    Pass ?peek=true to inspect token metadata without consuming it.
+
+    Args:
+        token: The share token string.
+        peek: If True, return metadata only without consuming the token.
+
+    Returns:
+        JSON with session_data on success (consume mode), or token metadata
+        dict in peek mode. 404 if not found or expired.
+    """
+    from self_governance.p2p import get_shared_session, peek_shared_session
+    from fastapi.responses import JSONResponse
+
+    if peek:
+        meta = peek_shared_session(token)
+        if meta is None:
+            return JSONResponse({"error": "Token not found or expired"}, status_code=404)
+        return JSONResponse(meta.to_dict())
+
+    session = get_shared_session(token)
+    if session is None:
+        return JSONResponse(
+            {"error": "Token not found, expired, or already consumed"},
+            status_code=404,
+        )
+    return JSONResponse({"session_data": session})
+
+
+@dev_app.delete("/api/p2p/session/{token}")
+async def p2p_revoke_session(token: str):
+    """Revoke a share token before it is consumed.
+
+    Args:
+        token: The share token string to revoke.
+
+    Returns:
+        JSON with revoked=True if the token was found and removed,
+        revoked=False if the token was not found.
+    """
+    from self_governance.p2p import revoke_share_token
+    from fastapi.responses import JSONResponse
+
+    revoked = revoke_share_token(token)
+    return JSONResponse({"revoked": revoked})
+
+
+@dev_app.get("/api/p2p/tokens")
+async def p2p_list_tokens():
+    """List all active share tokens (metadata only, session payload never exposed).
+
+    Returns:
+        JSON with a tokens list, each entry containing token, expires_at,
+        fingerprint, created_by, and ttl_remaining.
+    """
+    from self_governance.p2p import list_active_tokens
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse({"tokens": list_active_tokens()})
+

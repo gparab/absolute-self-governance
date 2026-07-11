@@ -3,7 +3,9 @@ import time
 import tempfile
 import threading
 import yaml
+from unittest.mock import patch, MagicMock
 from self_governance.nudger import ContinuousNudger
+from self_governance.models import SessionStatus
 from self_governance.dimensioning import dimension_swarm
 
 
@@ -53,8 +55,13 @@ def test_dimensioning_perf_and_memory():
 
 def test_nudger_concurrency_stress():
     print("--- Stress Testing Nudger Concurrency and Race Conditions ---")
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        handoff_path = os.path.join(tmp_dir, "handoff.md")
+    mock_result = MagicMock()
+    mock_result.approved_roster = ["final_agent_1", "final_agent_2"]
+    with tempfile.TemporaryDirectory() as tmp_dir, \
+         patch("self_governance.complexity.calculate_ast_complexity", return_value=1000), \
+         patch("self_governance.nudger.run_consensus", return_value=mock_result):
+        os.makedirs(os.path.join(tmp_dir, ".planning"), exist_ok=True)
+        handoff_path = os.path.join(tmp_dir, ".planning/CURRENT_STATE.md")
         log_path = os.path.join(tmp_dir, "roster_rotation_log.md")
         prompt_path = os.path.join(tmp_dir, "prompt_draft.md")
 
@@ -100,7 +107,7 @@ def test_nudger_concurrency_stress():
         # Write one final COMPLETED status
         final_candidates = ["final_agent_1", "final_agent_2"]
         final_content = yaml.dump(
-            {"status": "COMPLETED", "candidates": final_candidates}
+            {"status": SessionStatus.COMPLETED.value, "candidates": final_candidates}
         )
         with open(handoff_path, "w", encoding="utf-8") as f:
             f.write(final_content)
@@ -123,9 +130,12 @@ def test_nudger_concurrency_stress():
 def test_webhook_concurrent_load():
     from fastapi.testclient import TestClient
     from self_governance.github_app import app
-    from self_governance.db import SessionLocal, RateLimitEntry
+    from self_governance.db import SessionLocal, RateLimitEntry, Tenant
+    from self_governance.auth import hash_key
 
     db = SessionLocal()
+    if not db.query(Tenant).filter_by(id="tenantA").first():
+        db.add(Tenant(id="tenantA", name="A", api_key_hash=hash_key("tenant_tenantA_key")))
     db.query(RateLimitEntry).delete()
     db.commit()
     db.close()
@@ -155,6 +165,7 @@ def test_webhook_concurrent_load():
     print(
         f"Concurrent stress test: {status_200} requests succeeded (200), {status_429} requests rate-limited (429)"
     )
+    print("ALL RESULTS:", results)
 
     assert status_200 == 100
     assert status_429 == 20

@@ -1,3 +1,10 @@
+"""Gemini Execution Adapter module.
+
+Provides a concrete implementation of BaseExecutionAdapter that integrates with
+the Google Gemini API for tasks such as planning, development, code review,
+testing, security scanning, documentation, and advisor consulting.
+"""
+
 import os
 import json
 import logging
@@ -6,12 +13,60 @@ import urllib.error
 import time
 import subprocess  # nosec B404
 import sys
+import inspect
 from typing import List, Dict, Any, Optional
 from self_governance.base_adapter import BaseExecutionAdapter
-from self_governance.models import Agent
+from self_governance.models import Agent, SessionStatus
+from self_governance.billing import calculate_cost
 from self_governance.tracing import tracer
+from self_governance.economics import TaskWallet, route_model
 
 logger = logging.getLogger("self_governance.gemini_adapter")
+
+
+def call_safely(func: Any, prompt: str, api_key: Optional[str], **kwargs: Any) -> Any:
+    """Safely invokes a Gemini call function filtering out unsupported parameters.
+
+    Args:
+        func: The target function/callable.
+        prompt: The prompt text.
+        api_key: Optional Gemini API key.
+        **kwargs: Optional additional keyword arguments to pass.
+
+    Returns:
+        The result of the function call.
+    """
+    try:
+        sig = inspect.signature(func)
+        has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+
+        positional_params = [
+            name for name, p in sig.parameters.items()
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+
+        args: List[Any] = []
+        if len(positional_params) >= 1:
+            args.append(prompt)
+        if len(positional_params) >= 2:
+            args.append(api_key)
+
+        bound_names = set(positional_params[:len(args)])
+
+        valid_kwargs = {}
+        for k, v in kwargs.items():
+            if has_var_keyword or (k in sig.parameters and k not in bound_names):
+                valid_kwargs[k] = v
+
+        return func(*args, **valid_kwargs)
+    except (ValueError, TypeError):
+        try:
+            return func(prompt, api_key, **kwargs)
+        except TypeError:
+            try:
+                return func(prompt, api_key)
+            except TypeError:
+                return func(prompt)
 
 
 def call_gemini_with_metadata(
@@ -22,32 +77,95 @@ def call_gemini_with_metadata(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    developer_message: Optional[str] = None,
+    system_instruction: Optional[str] = None,
+    is_reasoning: bool = False,
 ) -> Dict[str, Any]:
-    """Make a direct HTTP call to the Gemini API and return text along with usage metadata."""
-    # ~500k chars ≈ 125k tokens: fail fast on runaway prompts instead of
-    # paying for them or hitting opaque model-side limits.
+    """Makes a direct HTTP call to the Gemini API with retry logic and returns usage metadata.
+
+    Args:
+        prompt: The input instruction prompt string.
+        api_key: The API key for Google Gemini.
+        response_schema: Optional structured JSON schema configuration.
+        response_mime_type: Optional response format mime type (e.g. application/json).
+        model: Optional LLM model identifier to invoke.
+        max_output_tokens: Optional token generation count limit.
+        temperature: Optional generation temperature value (0.0 to 2.0).
+        developer_message: Optional instruction for reasoning models.
+        system_instruction: Optional instruction for non-reasoning models.
+        is_reasoning: Whether the target model is a reasoning/thinking model.
+
+    Returns:
+        A dictionary containing:
+            text (str): The response text.
+            prompt_tokens (int): Prompt tokens used.
+            completion_tokens (int): Completion tokens generated.
+            finish_reason (str): Reason generation stopped (e.g. "STOP" or "ERROR").
+            error (bool, optional): True if an error occurred.
+
+    Raises:
+        ValueError: If prompt size exceeds 500,000 characters.
+    """
     if len(prompt) > 500_000:
         raise ValueError(
             f"Prompt of {len(prompt)} characters exceeds the 500,000-character limit."
         )
-    model_name = model or "gemini-2.5-flash"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
-    data: Dict[str, Any] = {"contents": [{"parts": [{"text": prompt}]}]}
 
-    if response_mime_type or response_schema or max_output_tokens or temperature is not None:
-        gen_config: Dict[str, Any] = {}
-        if response_mime_type:
-            gen_config["responseMimeType"] = response_mime_type
-        if response_schema:
-            gen_config["responseSchema"] = response_schema
-        if max_output_tokens:
-            gen_config["maxOutputTokens"] = max_output_tokens
-        if temperature is not None:
-            # Defensive clamp: Gemini's valid range is 0.0-2.0, regardless of
-            # what a caller passes (e.g. consensus.py's annealed temp).
-            gen_config["temperature"] = min(2.0, max(0.0, temperature))
-        data["generationConfig"] = gen_config
+    is_openrouter = bool(api_key and api_key.startswith("sk-or-"))
+    model_name = model if (model and ("/" in model or is_openrouter)) else (model or "gemini-2.5-flash")
+
+    # If is_reasoning is False, perform auto-detection on the model name
+    if not is_reasoning:
+        mn_lower = model_name.lower()
+        is_reasoning = any(x in mn_lower for x in ("o1", "o3", "thinking", "reasoning"))
+
+    if is_openrouter:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://github.com/gparab/absolute-self-governance",
+            "X-Title": "Absolute Self-Governance",
+        }
+        messages = []
+        if is_reasoning:
+            if developer_message:
+                messages.append({"role": "developer", "content": developer_message})
+        else:
+            if system_instruction:
+                messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": prompt})
+
+        data: Dict[str, Any] = {
+            "model": model_name,
+            "messages": messages,
+        }
+        if not is_reasoning and temperature is not None:
+            data["temperature"] = min(2.0, max(0.0, temperature))
+        if response_mime_type == "application/json" or response_schema:
+            data["response_format"] = {"type": "json_object"}
+    else:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
+        data = {"contents": [{"parts": [{"text": prompt}]}]}
+
+        instruction_text = developer_message if is_reasoning else system_instruction
+        if instruction_text:
+            data["systemInstruction"] = {
+                "parts": [{"text": instruction_text}]
+            }
+
+        if response_mime_type or response_schema or max_output_tokens or (not is_reasoning and temperature is not None):
+            gen_config: Dict[str, Any] = {}
+            if response_mime_type:
+                gen_config["responseMimeType"] = response_mime_type
+            if response_schema:
+                gen_config["responseSchema"] = response_schema
+            if max_output_tokens:
+                gen_config["maxOutputTokens"] = max_output_tokens
+            if not is_reasoning and temperature is not None:
+                gen_config["temperature"] = min(2.0, max(0.0, temperature))
+            data["generationConfig"] = gen_config
 
     attempts = 3
     delay = 1.0
@@ -59,19 +177,34 @@ def call_gemini_with_metadata(
         try:
             with urllib.request.urlopen(req, timeout=60) as response:  # nosec B310
                 res_data = json.loads(response.read().decode())
-                candidates = res_data.get("candidates", [])
-                usage_metadata = res_data.get("usageMetadata", {})
-                prompt_tokens = usage_metadata.get("promptTokenCount", 0)
-                completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+                if is_openrouter:
+                    choices = res_data.get("choices", [])
+                    usage_metadata = res_data.get("usage", {})
+                    prompt_tokens = usage_metadata.get("prompt_tokens", 0)
+                    completion_tokens = usage_metadata.get("completion_tokens", 0)
+                    text = ""
+                    finish_reason = "STOP"
+                    if choices:
+                        finish_reason = choices[0].get("finish_reason", "STOP")
+                        if finish_reason is None:
+                            finish_reason = "STOP"
+                        else:
+                            finish_reason = str(finish_reason).upper()
+                        text = choices[0].get("message", {}).get("content", "").strip()
+                else:
+                    candidates = res_data.get("candidates", [])
+                    usage_metadata = res_data.get("usageMetadata", {})
+                    prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+                    completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
 
-                text = ""
-                finish_reason = "STOP"
-                if candidates:
-                    finish_reason = candidates[0].get("finishReason", "STOP")
-                    content = candidates[0].get("content", {})
-                    parts = content.get("parts", [])
-                    if parts:
-                        text = parts[0].get("text", "").strip()
+                    text = ""
+                    finish_reason = "STOP"
+                    if candidates:
+                        finish_reason = candidates[0].get("finishReason", "STOP")
+                        content = candidates[0].get("content", {})
+                        parts = content.get("parts", [])
+                        if parts:
+                            text = parts[0].get("text", "").strip()
 
                 return {
                     "text": text,
@@ -101,8 +234,7 @@ def call_gemini_with_metadata(
             else:
                 logger.error("Failed to query Gemini API: %s", e)
                 break
-    # Failure channel: callers must check "error" rather than treating an
-    # empty response as a successful completion.
+
     return {
         "text": "",
         "prompt_tokens": 0,
@@ -120,22 +252,30 @@ def call_gemini(
     model: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    developer_message: Optional[str] = None,
+    system_instruction: Optional[str] = None,
+    is_reasoning: bool = False,
 ) -> str:
-    """Make a direct HTTP call to the Gemini API with exponential backoff retries."""
-    try:
-        return call_gemini_with_metadata(
-            prompt, api_key, response_schema, response_mime_type, model, max_output_tokens,
-            temperature=temperature,
-        )["text"]
-    except TypeError:
-        return call_gemini_with_metadata(
-            prompt, api_key, response_schema, response_mime_type, model
-        )["text"]
+    """Makes a direct HTTP call to the Gemini API and returns only the response text."""
+    return call_safely(
+        call_gemini_with_metadata,
+        prompt,
+        api_key,
+        response_schema=response_schema,
+        response_mime_type=response_mime_type,
+        model=model,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        developer_message=developer_message,
+        system_instruction=system_instruction,
+        is_reasoning=is_reasoning,
+    )["text"]
 
 
 class GeminiExecutionAdapter(BaseExecutionAdapter):
-    """
-    A concrete execution adapter that delegates tasks to Gemini API models.
+    """A concrete execution adapter that delegates tasks to Gemini API models.
+
+    Accumulates token usage and manages TaskWallet budget constraints.
     """
 
     def __init__(
@@ -145,18 +285,33 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         model_development: Optional[str] = None,
         model_review: Optional[str] = None,
         model_security: Optional[str] = None,
+        config_path: Optional[str] = None,
     ) -> None:
+        """Initializes the GeminiExecutionAdapter.
+
+        Args:
+            api_key: Optional Gemini API key.
+            model_default: Default fallback model target.
+            model_development: Model target for development tasks.
+            model_review: Model target for code review.
+            model_security: Model target for security scans.
+            config_path: Optional path to OrchestratorConfig YAML.
+        """
+        super().__init__()
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.config = None
         try:
             from self_governance.config import OrchestratorConfig
 
-            config = OrchestratorConfig()
+            config = OrchestratorConfig(config_path)
+            self.config = config
             default_val = model_default or config.model_default
             self.model_default = default_val
             self.model_development = model_development or config.model_development
             self.model_review = model_review or config.model_review
             self.model_security = model_security or config.model_security
         except Exception:
+            logger.warning("Failed to initialize OrchestratorConfig in GeminiExecutionAdapter constructor; falling back to default model configurations.", exc_info=True)
             default_val = model_default or "gemini-2.5-flash"
             self.model_default = default_val
             self.model_development = model_development or default_val
@@ -164,10 +319,18 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             self.model_security = model_security or default_val
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self.wallet = TaskWallet(max_budget=0.50)
         if not self.api_key:
             logger.warning(
                 "GEMINI_API_KEY not found in environment. Gemini execution runs will use mock fallbacks."
             )
+
+    def is_reasoning_model(self, model_name: Optional[str]) -> bool:
+        """Checks if the given model name corresponds to a reasoning model."""
+        if not model_name:
+            return False
+        name_lower = model_name.lower()
+        return any(x in name_lower for x in ("o1", "o3", "r1", "thinking", "reasoning"))
 
     def _call_gemini_and_track(
         self,
@@ -178,65 +341,87 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         max_output_tokens: Optional[int] = None,
         return_metadata: bool = False,
         temperature: Optional[float] = None,
+        agents: Optional[List[Agent]] = None,
     ) -> Any:
-        """Call Gemini and accumulate token counts for pricing calculations."""
-        model_name = model or self.model_default
+        """Calls Gemini API and records token usage statistics.
+
+        Args:
+            prompt: The instruction prompt text.
+            response_schema: Optional structured JSON schema.
+            response_mime_type: Optional response mime type config.
+            model: Optional model name to override.
+            max_output_tokens: Optional max output tokens cap.
+            return_metadata: If True, returns full metadata dict instead of text.
+            temperature: Optional generation temperature.
+            agents: Optional list of Agent instances for persona injection.
+
+        Returns:
+            The raw text result, or a dict containing metadata if return_metadata is True.
+        """
+        model_name = model or route_model(prompt)
+        is_reasoning = self.is_reasoning_model(model_name)
+
+        if is_reasoning:
+            temperature = None
+
+        dev_msg = None
+        sys_inst = None
+        if agents:
+            if is_reasoning:
+                dev_msg = "\n\n".join(
+                    (a.developer_message if a.developer_message is not None else a.prompt)
+                    for a in agents
+                )
+            else:
+                sys_inst = "\n\n".join(a.prompt for a in agents)
+
         with tracer.start_as_current_span("gemini_api_call") as span:
             if os.getenv("TESTING") == "True":
-                try:
-                    res_text = call_gemini(
-                        prompt,
-                        self.api_key,
-                        response_schema=response_schema,
-                        response_mime_type=response_mime_type,
-                        model=model_name,
-                        max_output_tokens=max_output_tokens,
-                        temperature=temperature,
-                    )
-                    res = {"text": res_text, "finish_reason": "STOP"}
-                except TypeError:
-                    try:
-                        res_text = call_gemini(
-                            prompt,
-                            self.api_key,
-                            response_schema=response_schema,
-                            response_mime_type=response_mime_type,
-                            max_output_tokens=max_output_tokens,
-                        )
-                        res = {"text": res_text, "finish_reason": "STOP"}
-                    except TypeError:
-                        res = {"text": call_gemini(prompt, self.api_key), "finish_reason": "STOP"}
+                res_text = call_safely(
+                    call_gemini,
+                    prompt,
+                    self.api_key,
+                    response_schema=response_schema,
+                    response_mime_type=response_mime_type,
+                    model=model_name,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    developer_message=dev_msg,
+                    system_instruction=sys_inst,
+                    is_reasoning=is_reasoning,
+                )
+                res = {"text": res_text, "finish_reason": "STOP"}
             else:
-                try:
-                    res = call_gemini_with_metadata(
-                        prompt,
-                        self.api_key,
-                        response_schema=response_schema,
-                        response_mime_type=response_mime_type,
-                        model=model_name,
-                        max_output_tokens=max_output_tokens,
-                        temperature=temperature,
-                    )
-                except TypeError:
-                    try:
-                        res = call_gemini_with_metadata(
-                            prompt,
-                            self.api_key,
-                            response_schema=response_schema,
-                            response_mime_type=response_mime_type,
-                            max_output_tokens=max_output_tokens,
-                        )
-                    except TypeError:
-                        res = call_gemini_with_metadata(prompt, self.api_key)
+                res = call_safely(
+                    call_gemini_with_metadata,
+                    prompt,
+                    self.api_key,
+                    response_schema=response_schema,
+                    response_mime_type=response_mime_type,
+                    model=model_name,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                    developer_message=dev_msg,
+                    system_instruction=sys_inst,
+                    is_reasoning=is_reasoning,
+                )
             prompt_t = int(res.get("prompt_tokens", 0) or 0)
             completion_t = int(res.get("completion_tokens", 0) or 0)
+            if prompt_t == 0 and completion_t == 0:
+                prompt_t = max(1, len(prompt) // 4)
+                text_out = res.get("text", "")
+                completion_t = max(1, len(str(text_out)) // 4)
+
             self.prompt_tokens += prompt_t
             self.completion_tokens += completion_t
 
             span.set_attribute("prompt_tokens", prompt_t)
             span.set_attribute("completion_tokens", completion_t)
 
-            cost = (prompt_t * 0.000000075) + (completion_t * 0.00000030)
+            cost = calculate_cost(prompt_t, completion_t)
+            if hasattr(self, "wallet") and self.wallet is not None:
+                self.wallet.charge(cost)
+
             from self_governance.metrics import ASG_SWARM_COST_USD
 
             ASG_SWARM_COST_USD.inc(cost)
@@ -245,19 +430,39 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 return res
             return res.get("text", "")
 
-    def _run_or_fallback(self, prompt: str, fallback_msg: str, model: Optional[str] = None) -> Dict[str, Any]:
-        """Verify API key presence and return Gemini output or a fallback message."""
+    def _run_or_fallback(
+        self, prompt: str, fallback_msg: str, model: Optional[str] = None, agents: Optional[List[Agent]] = None
+    ) -> Dict[str, Any]:
+        """Runs the prompt with fallback logic if API key is missing or calls error out.
+
+        Args:
+            prompt: The instruction prompt string.
+            fallback_msg: Message to return if API is disabled or fails.
+            model: Optional model name to query.
+            agents: Optional list of Agent instances.
+
+        Returns:
+            A dict containing status ('completed' or 'failed') and output string.
+        """
         if not self.api_key:
-            return {"status": "completed", "output": fallback_msg}
-        res = self._call_gemini_and_track(prompt, model=model, return_metadata=True)
+            return {"status": SessionStatus.COMPLETED.value.lower(), "output": fallback_msg}
+        res = self._call_gemini_and_track(prompt, model=model, return_metadata=True, agents=agents)
         if res.get("error"):
             return {
-                "status": "failed",
+                "status": SessionStatus.FAILED.value.lower(),
                 "output": "Gemini API call failed after retries.",
             }
-        return {"status": "completed", "output": res.get("text") or fallback_msg}
+        return {"status": SessionStatus.COMPLETED.value.lower(), "output": res.get("text") or fallback_msg}
 
     def plan_task(self, task_description: str) -> Dict[str, Any]:
+        """Decomposes a task description into sequential steps.
+
+        Args:
+            task_description: Plain text description of the task.
+
+        Returns:
+            A dictionary containing the task description and a list of steps.
+        """
         logger.info("Gemini Planning: Decomposing task '%s'", task_description)
         if not self.api_key:
             return {
@@ -278,15 +483,157 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         return {"task": task_description, "steps": steps}
 
+    def _check_path_safe(
+        self, filepath: str, base_dir: str, package_dir: str
+    ) -> Optional[str]:
+        """Verifies if a filepath is safe from path traversal attempts.
+
+        Args:
+            filepath: Path of the file to check.
+            base_dir: Sandbox base directory.
+            package_dir: Directory containing package source code.
+
+        Returns:
+            The resolved realpath if safe, else None.
+        """
+        target_path = os.path.realpath(filepath)
+        is_safe = (target_path == base_dir) or target_path.startswith(
+            base_dir + os.sep
+        )
+        if target_path.startswith(package_dir + os.sep):
+            is_safe = False
+        if os.getenv("TESTING") == "True":
+            import tempfile
+
+            temp_dir = os.path.realpath(tempfile.gettempdir())
+            if target_path.startswith(temp_dir) or "/folders/" in target_path:
+                is_safe = True
+        return target_path if is_safe else None
+
+    def _write_files_from_json(
+        self, response_text: str, base_dir: str, package_dir: str
+    ) -> List[str]:
+        """Parses response_text as structured JSON and writes files.
+
+        Args:
+            response_text: JSON string response detailing written files.
+            base_dir: Root directory path.
+            package_dir: Core package directory path.
+
+        Returns:
+            A list of successfully written file path strings.
+
+        Raises:
+            json.JSONDecodeError: If response is not valid JSON.
+            ValueError: If the JSON schema structure is incorrect.
+        """
+        parsed_data = json.loads(response_text)
+        if not isinstance(parsed_data, dict) or "written_files" not in parsed_data:
+            raise ValueError("Invalid structured JSON schema.")
+
+        written_files = []
+        for file_info in parsed_data["written_files"]:
+            filepath = file_info.get("filepath", "").strip()
+            content = file_info.get("content", "")
+            if filepath:
+                target_path = self._check_path_safe(filepath, base_dir, package_dir)
+                if not target_path:
+                    logger.warning(
+                        "Path traversal attempt blocked: %s is outside %s",
+                        filepath,
+                        base_dir,
+                    )
+                    continue
+
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                written_files.append(filepath)
+                logger.info(
+                    "Successfully wrote swarm generated code changes to file (structured JSON): %s",
+                    filepath,
+                )
+        return written_files
+
+    def _write_files_legacy(
+        self, response_text: str, base_dir: str, package_dir: str
+    ) -> List[str]:
+        """Parses and writes files using the legacy ### WRITE_FILE pattern.
+
+        Args:
+            response_text: Text response containing legacy file block headers.
+            base_dir: Root directory path.
+            package_dir: Core package directory path.
+
+        Returns:
+            A list of successfully written file path strings.
+        """
+        written_files = []
+        lines = response_text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if line.startswith("### WRITE_FILE:"):
+                filepath = line.replace("### WRITE_FILE:", "").strip()
+                target_path = self._check_path_safe(filepath, base_dir, package_dir)
+                if not target_path:
+                    logger.warning(
+                        "Path traversal attempt blocked: %s is outside %s",
+                        filepath,
+                        base_dir,
+                    )
+                    i += 1
+                    continue
+
+                i += 1
+                # Find start of code fence
+                fence_found = False
+                while i < len(lines):
+                    if lines[i].strip().startswith("```"):
+                        fence_found = True
+                        break
+                    i += 1
+                if not fence_found:
+                    logger.warning("No valid code fence found for file: %s", filepath)
+                    i += 1
+                    continue
+                i += 1  # Skip ``` line
+
+                content_lines = []
+                while i < len(lines) and lines[i].strip() != "```":
+                    content_lines.append(lines[i])
+                    i += 1
+
+                content = "\n".join(content_lines)
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                written_files.append(filepath)
+                logger.info(
+                    "Successfully wrote swarm generated code changes to file: %s",
+                    filepath,
+                )
+            i += 1
+        return written_files
+
     def execute_development(
         self, agents: List[Agent], plan: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Executes development tasks, parsing changes and writing them to files.
+
+        Args:
+            agents: Roster of agents assigned to development.
+            plan: The decomposition task plan.
+
+        Returns:
+            A dictionary containing the status, output, and list of written files.
+        """
         logger.info(
             "Gemini Dev Swarm: Running code generation for plan '%s'", plan.get("task")
         )
         if not self.api_key:
             return {
-                "status": "completed",
+                "status": SessionStatus.COMPLETED.value.lower(),
                 "output": "Gemini Dev: Code changes written successfully.",
                 "written_files": [],
             }
@@ -328,71 +675,30 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         }
 
         response_text = self._call_gemini_and_track(
-            prompt, response_schema=schema, response_mime_type="application/json"
+            prompt, response_schema=schema, response_mime_type="application/json", agents=agents
         )
 
         # API failure safeguard
         if not response_text:
             return {
-                "status": "failed",
+                "status": SessionStatus.FAILED.value.lower(),
                 "output": "Failed to retrieve generated code from Gemini API.",
                 "written_files": [],
             }
 
-        written_files = []
         base_dir = os.path.realpath(".")
-
-        # LLM output is attacker-influenced (webhook issue bodies feed prompts):
-        # never let it overwrite this application's own code.
         package_dir = os.path.realpath(os.path.dirname(__file__))
-
-        # Path Traversal Check helper
-        def check_path_safe(filepath: str) -> Optional[str]:
-            target_path = os.path.realpath(filepath)
-            is_safe = (target_path == base_dir) or target_path.startswith(
-                base_dir + os.sep
-            )
-            if target_path.startswith(package_dir + os.sep):
-                is_safe = False
-            if os.getenv("TESTING") == "True":
-                import tempfile
-
-                temp_dir = os.path.realpath(tempfile.gettempdir())
-                if target_path.startswith(temp_dir) or "/folders/" in target_path:
-                    is_safe = True
-            return target_path if is_safe else None
 
         # 1. Try parsing response_text as structured JSON first
         try:
-            parsed_data = json.loads(response_text)
-            if isinstance(parsed_data, dict) and "written_files" in parsed_data:
-                for file_info in parsed_data["written_files"]:
-                    filepath = file_info.get("filepath", "").strip()
-                    content = file_info.get("content", "")
-                    if filepath:
-                        target_path = check_path_safe(filepath)
-                        if not target_path:
-                            logger.warning(
-                                "Path traversal attempt blocked: %s is outside %s",
-                                filepath,
-                                base_dir,
-                            )
-                            continue
-
-                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        with open(target_path, "w", encoding="utf-8") as f:
-                            f.write(content)
-                        written_files.append(filepath)
-                        logger.info(
-                            "Successfully wrote swarm generated code changes to file (structured JSON): %s",
-                            filepath,
-                        )
-
-                return {
-                    "status": "completed",
-                    "output": response_text,
-                    "written_files": written_files,
-                }
+            written_files = self._write_files_from_json(
+                response_text, base_dir, package_dir
+            )
+            return {
+                "status": SessionStatus.COMPLETED.value.lower(),
+                "output": response_text,
+                "written_files": written_files,
+            }
         except Exception as json_err:
             logger.info(
                 "Structured JSON parsing failed (%s), falling back to legacy line-by-line parser.",
@@ -400,54 +706,11 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             )
 
         # 2. Fallback: Parse and write files using the legacy ### WRITE_FILE pattern
-        lines = response_text.splitlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            if line.startswith("### WRITE_FILE:"):
-                filepath = line.replace("### WRITE_FILE:", "").strip()
-                target_path = check_path_safe(filepath)
-                if not target_path:
-                    logger.warning(
-                        "Path traversal attempt blocked: %s is outside %s",
-                        filepath,
-                        base_dir,
-                    )
-                    i += 1
-                    continue
-
-                i += 1
-                # Find start of code fence
-                fence_found = False
-                while i < len(lines):
-                    if lines[i].strip().startswith("```"):
-                        fence_found = True
-                        break
-                    i += 1
-                if not fence_found:
-                    logger.warning("No valid code fence found for file: %s", filepath)
-                    i += 1
-                    continue
-                i += 1  # Skip ``` line
-
-                content_lines = []
-                while i < len(lines) and lines[i].strip() != "```":
-                    content_lines.append(lines[i])
-                    i += 1
-
-                content = "\n".join(content_lines)
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                with open(target_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                written_files.append(filepath)
-                logger.info(
-                    "Successfully wrote swarm generated code changes to file: %s",
-                    filepath,
-                )
-            i += 1
-
+        written_files = self._write_files_legacy(
+            response_text, base_dir, package_dir
+        )
         return {
-            "status": "completed",
+            "status": SessionStatus.COMPLETED.value.lower(),
             "output": response_text,
             "written_files": written_files,
         }
@@ -455,6 +718,15 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
     def review_code(
         self, agents: List[Agent], changes: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Reviews codebase changes using Ruff and queries LLM for fixes explanation.
+
+        Args:
+            agents: Roster of agents assigned to review.
+            changes: Dictionary detailing code modifications.
+
+        Returns:
+            A dictionary containing the review status, explanation, and ruff outputs.
+        """
         logger.info("Gemini Reviewer Swarm: Inspecting development changes...")
         try:
             res = subprocess.run(
@@ -464,9 +736,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 timeout=15,  # nosec B603 B607
             )
             lint_output = res.stdout + "\n" + res.stderr
-            status = "completed" if res.returncode == 0 else "failed"
+            status = SessionStatus.COMPLETED.value.lower() if res.returncode == 0 else SessionStatus.FAILED.value.lower()
         except Exception as e:
-            status = "failed"
+            status = SessionStatus.FAILED.value.lower()
             lint_output = f"Linter execution failed: {e}"
             logger.error("Failed to run ruff linter: %s", e)
 
@@ -475,7 +747,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             if agents:
                 roles = ", ".join(agent.role for agent in agents)
                 prompt += f"\nAccount for the following role perspectives: {roles}"
-            response_text = self._call_gemini_and_track(prompt, model=self.model_review)
+            response_text = self._call_gemini_and_track(prompt, model=self.model_review, agents=agents)
             return {
                 "status": status,
                 "output": response_text,
@@ -493,9 +765,19 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         changes: Dict[str, Any],
         test_target: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Executes test suite inside container sandbox, querying Gemini on results.
+
+        Args:
+            agents: Roster of agents executing testing.
+            changes: Dictionary of modifications.
+            test_target: Optional path of the test file to target.
+
+        Returns:
+            A dictionary containing test results status, LLM comments, and raw pytest log.
+        """
         logger.info("Gemini Tester Swarm: Initiating validation test suites...")
         test_output = ""
-        status = "failed"
+        status = SessionStatus.FAILED.value.lower()
 
         # Try running pytest inside a containerized sandbox
         try:
@@ -526,7 +808,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
             res = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=30)  # nosec B603
             test_output = res.stdout + "\n" + res.stderr
-            status = "completed" if res.returncode == 0 else "failed"
+            status = SessionStatus.COMPLETED.value.lower() if res.returncode == 0 else SessionStatus.FAILED.value.lower()
             logger.info(
                 "Containerized test sandbox execution finished with code %s",
                 res.returncode,
@@ -548,13 +830,13 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         timeout=30,  # nosec B603
                     )
                     test_output = res.stdout + "\n" + res.stderr
-                    status = "completed" if res.returncode == 0 else "failed"
+                    status = SessionStatus.COMPLETED.value.lower() if res.returncode == 0 else SessionStatus.FAILED.value.lower()
                 except Exception as e:
-                    status = "failed"
+                    status = SessionStatus.FAILED.value.lower()
                     test_output = f"Test execution failed: {e}"
                     logger.error("Failed to run host subprocess test suite: %s", e)
             else:
-                status = "failed"
+                status = SessionStatus.FAILED.value.lower()
                 test_output = f"Containerized test execution failed: {docker_err}. Host execution fallback is disabled for security."
                 logger.error(
                     "Failed to run containerized test suite: %s. Host execution fallback blocked.",
@@ -563,7 +845,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if self.api_key:
             prompt = f"Review the test output and state if any failures require fixes: {test_output}"
-            response_text = self._call_gemini_and_track(prompt, model=self.model_review)
+            response_text = self._call_gemini_and_track(prompt, model=self.model_review, agents=agents)
             return {
                 "status": status,
                 "output": response_text,
@@ -575,6 +857,15 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
     def run_security_scan(
         self, agents: List[Agent], changes: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Runs static analysis security scan using Bandit, reporting issues.
+
+        Args:
+            agents: Roster of agents assigned to security scan.
+            changes: Modified code dictionary.
+
+        Returns:
+            A dictionary containing scan status, LLM critique, and raw bandit log.
+        """
         logger.info("Gemini Security Swarm: Running static security checks...")
         try:
             res = subprocess.run(
@@ -584,9 +875,9 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 timeout=15,  # nosec B603 B607
             )
             sec_output = res.stdout + "\n" + res.stderr
-            status = "completed" if res.returncode == 0 else "failed"
+            status = SessionStatus.COMPLETED.value.lower() if res.returncode == 0 else SessionStatus.FAILED.value.lower()
         except Exception as e:
-            status = "failed"
+            status = SessionStatus.FAILED.value.lower()
             sec_output = f"Security scan failed: {e}"
             logger.error("Failed to run bandit scanner: %s", e)
 
@@ -596,7 +887,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 roles = ", ".join(agent.role for agent in agents)
                 prompt += f"\nAccount for the following role perspectives: {roles}"
             response_text = self._call_gemini_and_track(
-                prompt, model=self.model_security
+                prompt, model=self.model_security, agents=agents
             )
             return {
                 "status": status,
@@ -612,23 +903,44 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
     def generate_documentation(
         self, agents: List[Agent], changes: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Invokes documentation swarm to generate docstrings or readme.
+
+        Args:
+            agents: Roster of agents compiling docs.
+            changes: Dictionary detailing codebase edits.
+
+        Returns:
+            A dictionary detailing generated documentation outcomes.
+        """
         logger.info("Gemini Documentation Swarm: Generating project descriptions...")
         prompt = f"Generate documentation for these changes: {json.dumps(changes)}"
         return self._run_or_fallback(
             prompt,
             "Gemini Doc: README and docstrings compiled.",
             model=self.model_development,
+            agents=agents,
         )
 
     def consult_advisor(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Consults high-intelligence advisor agent with dialogue history.
+
+        Args:
+            conversation_history: List of prior dialogue messages dictionaries.
+
+        Returns:
+            A dictionary containing status, explanation, and stop reason.
+        """
         logger.info("Gemini Advisor: Consulting higher-intelligence advisor model...")
-        
+
         try:
-            from self_governance.config import OrchestratorConfig
-            config = OrchestratorConfig()
-            max_tokens = config.advisor_max_tokens
-            advisor_enabled = config.advisor_enabled
+            if self.config:
+                max_tokens = self.config.advisor_max_tokens
+                advisor_enabled = self.config.advisor_enabled
+            else:
+                max_tokens = 2048
+                advisor_enabled = True
         except Exception:
+            logger.warning("Failed to retrieve advisor settings from config; falling back to default advisor settings.", exc_info=True)
             max_tokens = 2048
             advisor_enabled = True
 
@@ -648,7 +960,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         if not self.api_key:
             return {
-                "status": "completed",
+                "status": SessionStatus.COMPLETED.value.lower(),
                 "output": "Advisor Mock Fallback: Establish modular architecture and run all validation tests.",
                 "stop_reason": "end_turn"
             }
@@ -663,13 +975,14 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         text = res_data.get("text", "")
         finish_reason = res_data.get("finish_reason", "STOP")
         stop_reason = "end_turn"
-        
+
         if finish_reason == "MAX_TOKENS" or len(text.strip()) == 0:
             stop_reason = "max_tokens"
             text += f"\n\n[Advisor output truncated at max_tokens={max_tokens}.]"
 
         return {
-            "status": "completed",
+            "status": SessionStatus.COMPLETED.value.lower(),
             "output": text,
             "stop_reason": stop_reason
         }
+

@@ -1,3 +1,9 @@
+"""Prometheus Metrics module.
+
+Defines Prometheus instrumentation components (Counter, Histogram)
+for observing succession loops, latency, swarm cost, and webhook events.
+"""
+
 from prometheus_client import Counter, Histogram
 
 # Prometheus metrics for ASG platform observation
@@ -22,3 +28,4 @@ ASG_WEBHOOK_EVENTS = Counter(
     "Total number of webhook events received by the FastAPI webhook handler",
     labelnames=["event_type"],
 )
+

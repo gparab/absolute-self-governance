@@ -1,9 +1,18 @@
+"""Dashboard visualization module.
+
+Exposes a CLI dashboard displaying key historical metrics of the
+Self-Governing Software Factory execution runs.
+"""
+
 import sys
 from self_governance.learning import get_learning_state
 
 
 def display_dashboard():
-    """Print the historical metrics dashboard of the Self-Governing Software Factory."""
+    """Print the historical metrics dashboard of the Self-Governing Software Factory.
+
+    Retrieves aggregated learning state statistics and formats them for CLI display.
+    """
     state = get_learning_state()
 
     sys.stdout.write("==================================================\n")
@@ -17,3 +26,4 @@ def display_dashboard():
         f"Matrix Tuning Scale:  {state['matrix_tuning']['scale_factor']:.2f}\n"
     )
     sys.stdout.write("==================================================\n")
+

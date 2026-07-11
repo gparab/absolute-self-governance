@@ -1,3 +1,9 @@
+"""OpenTelemetry Tracing Setup module.
+
+Configures OTLP/Console span exporters and registers the default tracer provider
+for distributed request tracing.
+"""
+
 import logging
 import os
 from opentelemetry import trace
@@ -24,3 +30,4 @@ if os.getenv("TESTING") != "True":
 
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("self_governance")
+

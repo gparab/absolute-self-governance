@@ -1,6 +1,7 @@
 import os
 import time
 from self_governance.gemini_adapter import GeminiExecutionAdapter
+from self_governance.models import SessionStatus
 
 
 def test_gemini_adapter_fallback():
@@ -64,7 +65,7 @@ def test_gemini_execute_development_writes_file(tmp_path, monkeypatch):
 
     adapter = GeminiExecutionAdapter(api_key="valid_key")
     res = adapter.execute_development([], {"task": "Write test func"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert "swarm_generated.py" in res["written_files"][0]
 
     # Check that file was actually written to disk
@@ -86,7 +87,7 @@ def test_gemini_execute_tests_subprocess(monkeypatch):
 
     adapter = GeminiExecutionAdapter(api_key=None)
     res = adapter.execute_tests([], {})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert "passed" in res["output"]
 
 
@@ -106,7 +107,7 @@ def test_gemini_path_traversal_blocked(monkeypatch):
 
     adapter = GeminiExecutionAdapter(api_key="valid_key")
     res = adapter.execute_development([], {"task": "Write malformed path"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     # Ensure no files were written
     assert len(res["written_files"]) == 0
 
@@ -132,7 +133,7 @@ def test_path_traversal_prefix_bug(monkeypatch):
 
     adapter = GeminiExecutionAdapter(api_key="valid_key")
     res = adapter.execute_development([], {"task": "Verify prefix bypass"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert len(res["written_files"]) == 0
 
 
@@ -145,7 +146,7 @@ def test_gemini_empty_response(monkeypatch):
 
     adapter = GeminiExecutionAdapter(api_key="valid_key")
     res = adapter.execute_development([], {"task": "Expect failure status"})
-    assert res["status"] == "failed"
+    assert res["status"] == SessionStatus.FAILED.value.lower()
     assert "Failed" in res["output"]
 
 
@@ -164,7 +165,7 @@ def test_gemini_parser_fuzzing(monkeypatch):
     )
     adapter = GeminiExecutionAdapter(api_key="valid_key")
     res = adapter.execute_development([], {"task": "Malformed fence test"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert len(res["written_files"]) == 0
 
     # 2. Test multi-nested code blocks
@@ -180,7 +181,7 @@ def test_gemini_parser_fuzzing(monkeypatch):
         ),
     )
     res = adapter.execute_development([], {"task": "Nested fence test"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert len(res["written_files"]) == 1
     with open("test_nested.py", "r", encoding="utf-8") as f:
         content = f.read()
@@ -199,7 +200,7 @@ def test_gemini_parser_fuzzing(monkeypatch):
         ),
     )
     res = adapter.execute_development([], {"task": "Huge payload test"})
-    assert res["status"] == "completed"
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
     assert len(res["written_files"]) == 1
     try:
         os.remove("test_huge.py")
@@ -257,3 +258,62 @@ def test_model_routing(monkeypatch):
     called_models.clear()
     adapter.run_security_scan([], {})
     assert "gemini-custom-security" in called_models
+
+
+def test_gemini_execute_development_json_format(tmp_path, monkeypatch):
+    import json
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    # Mock call_gemini to return a structured JSON code payload
+    target_file = os.path.join(str(tmp_path), "swarm_generated_json.py")
+    json_payload = {
+        "explanation": "Implemented structured json generation",
+        "written_files": [
+            {
+                "filepath": target_file,
+                "content": "def json_func():\n    return 'json_format'\n"
+            }
+        ]
+    }
+
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.call_gemini",
+        lambda prompt, key: json.dumps(json_payload),
+    )
+
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Write json test"})
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
+    assert target_file in res["written_files"][0]
+
+    # Check that file was actually written to disk
+    with open(res["written_files"][0], "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "def json_func():" in content
+
+
+def test_gemini_execute_development_json_fallback(tmp_path, monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    # Return a payload that is NOT valid JSON but contains legacy WRITE_FILE pattern
+    target_file = os.path.join(str(tmp_path), "swarm_fallback.py")
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.call_gemini",
+        lambda prompt, key: (
+            "{invalid_json: true}\n"
+            "### WRITE_FILE: " + target_file + "\n"
+            "```python\n"
+            "def fallback_func():\n"
+            "    return 'fallback'\n"
+            "```"
+        ),
+    )
+
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development([], {"task": "Fallback test"})
+    assert res["status"] == SessionStatus.COMPLETED.value.lower()
+    assert target_file in res["written_files"][0]
+
+    with open(res["written_files"][0], "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "def fallback_func():" in content
