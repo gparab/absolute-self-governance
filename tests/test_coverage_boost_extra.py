@@ -127,10 +127,13 @@ def test_base_adapter_boost():
             return super().generate_documentation(agents, changes)
         def consult_advisor(self, conversation_history):
             return super().consult_advisor(conversation_history)
+        def get_billing_metrics(self):
+            return super().get_billing_metrics()
 
     adapter = TestAdapter()
     adapter.plan_task("task")
     adapter.execute_development([], {})
+    adapter.get_billing_metrics()
     adapter.review_code([], {})
     adapter.execute_tests([], {}, None)
     adapter.run_security_scan([], {})

@@ -317,3 +317,28 @@ def test_gemini_execute_development_json_fallback(tmp_path, monkeypatch):
     with open(res["written_files"][0], "r", encoding="utf-8") as f:
         content = f.read()
     assert "def fallback_func():" in content
+
+def test_gemini_adapter_config_path_wired(monkeypatch, tmp_path):
+    """P1.1: Verify config.yaml model settings reach outgoing request."""
+    import yaml
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump({"models": {"default": "gemini-test-custom-1.0", "development": "gemini-test-custom-1.0"}}))
+
+    adapter = GeminiExecutionAdapter(api_key="valid", config_path=str(config_file))
+    
+    # Mock execute_request in providers to capture payload
+    captured_model = []
+    
+    def mock_execute(url, headers, data, parser):
+        captured_model.append(data.get("model", "not-found")) # For openrouter
+        if "generativelanguage" in url:
+            captured_model.append(url)
+        return {"text": "Success", "prompt_tokens": 1, "completion_tokens": 1, "finish_reason": "STOP"}
+        
+    import self_governance.providers
+    monkeypatch.setattr(self_governance.providers, "_execute_request", mock_execute)
+    
+    adapter.plan_task("Some simple task")
+    assert any("gemini-test-custom-1.0" in url for url in captured_model), f"Model not routed correctly: {captured_model}"

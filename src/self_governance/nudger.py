@@ -136,7 +136,10 @@ class ResilientHookExecutor:
             else:
                 cmd = [hook_file]
 
-            res = subprocess.run(
+            # Hooks are operator-installed executables from the repo's own
+            # hooks dir (same trust model as git hooks): static argv, no
+            # shell, 5s timeout.
+            res = subprocess.run(  # nosec B603
                 cmd,
                 input=json.dumps(payload),
                 text=True,
@@ -157,7 +160,9 @@ class ResilientHookExecutor:
                         "exit_code": res.returncode,
                         "output": out_data
                     }
-            except Exception:
+            except Exception:  # nosec B110
+                # Hook stdout wasn't JSON — fall through to the default
+                # allow-with-exit-code result below.
                 pass
 
             return {"permission": "allow", "status": "executed", "exit_code": res.returncode}
@@ -522,9 +527,11 @@ class ContinuousNudger:
                     worktree_path = os.path.join(self.working_directory, ".planning", "worktrees", "active_task")
                     if not os.path.exists(worktree_path):
                         os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
-                        subprocess.run(["git", "branch", "-D", "active_task"], cwd=self.working_directory, capture_output=True)
-                        subprocess.run(["git", "worktree", "prune"], cwd=self.working_directory, capture_output=True)
-                        subprocess.run(["git", "worktree", "add", "-b", "active_task", worktree_path], cwd=self.working_directory, capture_output=True)
+                        # Static git argv, no shell, operator-owned cwd; `git`
+                        # via PATH is the portable convention (B607).
+                        subprocess.run(["git", "branch", "-D", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                        subprocess.run(["git", "worktree", "prune"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                        subprocess.run(["git", "worktree", "add", "-b", "active_task", worktree_path], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
                         _emit_event(self.working_directory, "worktree", {"message": f"Created execution worktree at {worktree_path}"})
 
                     if not self._execute_succession_safely(content):
@@ -554,8 +561,10 @@ class ContinuousNudger:
                             worktree_path = os.path.join(self.working_directory, ".planning", "worktrees", "active_task")
                             exec_dir = worktree_path if os.path.exists(worktree_path) else self.working_directory
                             
-                            pytest_res = subprocess.run(["uv", "run", "pytest", "-q"], cwd=exec_dir, capture_output=True, text=True)
-                            audit_res = subprocess.run(["uv", "run", "self-governance", "security-audit", self.config.handoff_file], cwd=exec_dir, capture_output=True, text=True)
+                            # Static argv, no shell; handoff_file comes from the
+                            # operator's own config, not remote input.
+                            pytest_res = subprocess.run(["uv", "run", "pytest", "-q"], cwd=exec_dir, capture_output=True, text=True)  # nosec B603 B607
+                            audit_res = subprocess.run(["uv", "run", "self-governance", "security-audit", self.config.handoff_file], cwd=exec_dir, capture_output=True, text=True)  # nosec B603 B607
                             
                             if pytest_res.returncode != 0 or audit_res.returncode != 0:
                                 logger.error("Verify phase failed. Pytest exit: %d, Audit exit: %d", pytest_res.returncode, audit_res.returncode)
@@ -595,15 +604,16 @@ class ContinuousNudger:
                                 # Ship Phase
                                 _emit_event(self.working_directory, "ship", {"message": "Running Ship Phase: retro generation and worktree merge"})
                                 
-                                # If we used a worktree, commit and merge it back to main
+                                # If we used a worktree, commit and merge it back to main.
+                                # Static git/uv argv, no shell, operator-owned cwd (B603/B607).
                                 if os.path.exists(worktree_path):
-                                    subprocess.run(["git", "add", "."], cwd=worktree_path, capture_output=True)
-                                    subprocess.run(["git", "commit", "-m", "ASG Ship Phase: Auto-commit"], cwd=worktree_path, capture_output=True)
-                                    subprocess.run(["git", "merge", "active_task"], cwd=self.working_directory, capture_output=True)
-                                    subprocess.run(["git", "worktree", "remove", "-f", worktree_path], cwd=self.working_directory, capture_output=True)
-                                    subprocess.run(["git", "branch", "-d", "active_task"], cwd=self.working_directory, capture_output=True)
+                                    subprocess.run(["git", "add", "."], cwd=worktree_path, capture_output=True)  # nosec B603 B607
+                                    subprocess.run(["git", "commit", "-m", "ASG Ship Phase: Auto-commit"], cwd=worktree_path, capture_output=True)  # nosec B603 B607
+                                    subprocess.run(["git", "merge", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                                    subprocess.run(["git", "worktree", "remove", "-f", worktree_path], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                                    subprocess.run(["git", "branch", "-d", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
 
-                                subprocess.run(["uv", "run", "self-governance", "retro", "--export", os.path.join(".planning", "RETRO.md")], cwd=self.working_directory, capture_output=True)
+                                subprocess.run(["uv", "run", "self-governance", "retro", "--export", os.path.join(".planning", "RETRO.md")], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
                         except Exception as e:
                             logger.error("Error running Verify/Ship phases: %s", e)
 

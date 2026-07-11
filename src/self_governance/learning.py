@@ -473,13 +473,17 @@ class HNSWIndex:
             return
 
         if level is None:
-            r = random.random()
+            # HNSW level sampling: statistical layer assignment, not security.
+            r = random.random()  # nosec B311
             level = 0
             while r < 0.5 and level < self.max_level_limit:
                 level += 1
-                r = random.random()
+                r = random.random()  # nosec B311
 
-        assert self.enter_node is not None
+        if self.enter_node is None:
+            # assert would vanish under `python -O`; this invariant must hold
+            # in production too (an index with nodes always has an entry point).
+            raise RuntimeError("HNSW index has nodes but no entry node")
         curr_ep: Set[int] = {self.enter_node}
         for lvl in range(self.max_level, level, -1):
             candidates = self.search_layer(vector, curr_ep, ef=1, layer=lvl)
@@ -531,7 +535,8 @@ class HNSWIndex:
         if not self.nodes:
             return []
         q_vec = self.normalize(q_vec)
-        assert self.enter_node is not None
+        if self.enter_node is None:
+            raise RuntimeError("HNSW index has nodes but no entry node")
         curr_ep: Set[int] = {self.enter_node}
         for lvl in range(self.max_level, 0, -1):
             candidates = self.search_layer(q_vec, curr_ep, ef=1, layer=lvl)
@@ -696,7 +701,8 @@ def get_encryption_key() -> bytes:
         decoded = base64.b64decode(key_str)
         if len(decoded) in (16, 24, 32):
             return decoded
-    except Exception:
+    except Exception:  # nosec B110
+        # Not base64 — fall through to the padding/trimming path below.
         pass
 
     # Fallback padding/trimming to exactly 32 bytes

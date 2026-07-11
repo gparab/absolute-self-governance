@@ -1,0 +1,44 @@
+[
+  {
+    "id": "task_secure_reader",
+    "name": "Secure File Reader",
+    "description": "Write a function 'read_user_file(filename: str, safe_dir: str) -> Optional[str]' in secure_reader.py that reads the contents of the given file path inside safe_dir. It MUST strictly prevent path traversal attacks (e.g. if filename contains '../' or resolves outside safe_dir, return None). Return the file content as a string, or None if the file doesn't exist or is outside the safe directory.",
+    "test_code": "def test_secure_reader():\n    import os, tempfile\n    from secure_reader import read_user_file\n    # Fixtures go in a tempdir (the sandbox mounts the workspace :ro)\n    base = tempfile.mkdtemp()\n    safe_dir = os.path.join(base, 'safe_zone')\n    os.makedirs(safe_dir, exist_ok=True)\n    with open(os.path.join(safe_dir, 'data.txt'), 'w') as f: f.write('secret')\n    unsafe_path = os.path.join(base, 'unsafe.txt')\n    with open(unsafe_path, 'w') as f: f.write('evil')\n\n    assert read_user_file('data.txt', safe_dir) == 'secret'\n    assert read_user_file('../unsafe.txt', safe_dir) is None\n    assert read_user_file('/etc/passwd', safe_dir) is None\n",
+    "target_file": "secure_reader.py"
+  },
+  {
+    "id": "task_thread_safe_cache",
+    "name": "Thread Safe Cache",
+    "description": "Write a class 'ThreadSafeCache' in cache.py with methods 'set(key, value)' and 'get(key)'. Multiple threads will access this cache concurrently, so you MUST ensure thread-safety using appropriate locks (e.g. threading.Lock). Do not use external libraries.",
+    "test_code": "def test_cache_concurrency():\n    import threading\n    from cache import ThreadSafeCache\n    cache = ThreadSafeCache()\n    errors = []\n    \n    def worker(i):\n        try:\n            cache.set(f'key_{i}', i)\n            assert cache.get(f'key_{i}') == i\n        except Exception as e:\n            errors.append(e)\n            \n    threads = [threading.Thread(target=worker, args=(i,)) for i in range(100)]\n    for t in threads: t.start()\n    for t in threads: t.join()\n    assert len(errors) == 0\n",
+    "target_file": "cache.py"
+  },
+  {
+    "id": "task_reverse_string",
+    "name": "Reverse String (trivial)",
+    "description": "Write a function 'reverse_string(s: str) -> str' in text_utils.py that returns the input string reversed. No external libraries.",
+    "test_code": "def test_reverse_string():\n    from text_utils import reverse_string\n    assert reverse_string('hello') == 'olleh'\n    assert reverse_string('') == ''\n    assert reverse_string('a') == 'a'\n    assert reverse_string('racecar') == 'racecar'\n",
+    "target_file": "text_utils.py"
+  },
+  {
+    "id": "task_email_validator",
+    "name": "Email Validator (easy)",
+    "description": "Write a function 'is_valid_email(email: str) -> bool' in validators.py that returns True if the string is a syntactically valid email address (exactly one '@', a non-empty local part, and a domain part containing at least one '.' with a non-empty TLD), False otherwise. Standard library only (re is fine).",
+    "test_code": "def test_is_valid_email():\n    from validators import is_valid_email\n    assert is_valid_email('user@example.com') is True\n    assert is_valid_email('user.name+tag@example.co.uk') is True\n    assert is_valid_email('not-an-email') is False\n    assert is_valid_email('@example.com') is False\n    assert is_valid_email('user@') is False\n    assert is_valid_email('user@nodomain') is False\n    assert is_valid_email('') is False\n",
+    "target_file": "validators.py"
+  },
+  {
+    "id": "task_lru_cache",
+    "name": "LRU Cache (hard)",
+    "description": "Write a class 'LRUCache' in lru_cache.py with a fixed capacity set via __init__(self, capacity: int). Implement get(key) -> returns the value or -1 if not present, and put(key, value) which inserts/updates a key. When the cache exceeds capacity, evict the LEAST RECENTLY USED entry. Both get and put must run in O(1) time. Do not use functools.lru_cache or any external library -- implement the eviction logic yourself.",
+    "test_code": "def test_lru_cache():\n    from lru_cache import LRUCache\n    cache = LRUCache(2)\n    cache.put(1, 1)\n    cache.put(2, 2)\n    assert cache.get(1) == 1\n    cache.put(3, 3)  # evicts key 2 (least recently used)\n    assert cache.get(2) == -1\n    cache.put(4, 4)  # evicts key 1\n    assert cache.get(1) == -1\n    assert cache.get(3) == 3\n    assert cache.get(4) == 4\n",
+    "target_file": "lru_cache.py"
+  },
+  {
+    "id": "task_retry_backoff",
+    "name": "Retry With Backoff Decorator (hard)",
+    "description": "Write a decorator function 'retry_with_backoff(max_attempts: int, exceptions: tuple)' in retry.py. When applied to a function, if the function raises any exception matching the 'exceptions' tuple, retry up to max_attempts total attempts with exponential backoff (use time.sleep, doubling the delay each retry starting at 0.01 seconds). If all attempts fail, re-raise the last exception. If the function succeeds on any attempt, return its result immediately without further retries. Exceptions NOT in the 'exceptions' tuple must propagate immediately without being retried.",
+    "test_code": "import pytest\n\ndef test_retry_with_backoff():\n    from retry import retry_with_backoff\n\n    calls = {'count': 0}\n\n    @retry_with_backoff(max_attempts=3, exceptions=(ValueError,))\n    def flaky():\n        calls['count'] += 1\n        if calls['count'] < 3:\n            raise ValueError('not yet')\n        return 'ok'\n\n    assert flaky() == 'ok'\n    assert calls['count'] == 3\n\n    calls2 = {'count': 0}\n\n    @retry_with_backoff(max_attempts=3, exceptions=(ValueError,))\n    def always_fails():\n        calls2['count'] += 1\n        raise ValueError('nope')\n\n    with pytest.raises(ValueError):\n        always_fails()\n    assert calls2['count'] == 3\n\n    @retry_with_backoff(max_attempts=3, exceptions=(ValueError,))\n    def wrong_exception():\n        raise TypeError('not retried')\n\n    with pytest.raises(TypeError):\n        wrong_exception()\n",
+    "target_file": "retry.py"
+  }
+]

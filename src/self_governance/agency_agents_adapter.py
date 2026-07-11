@@ -17,6 +17,7 @@ falls through to DynamicAgentFactory and caches results for session reuse.
 
 from __future__ import annotations
 
+import os
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -322,11 +323,12 @@ def get_persona(
     role_name: str,
     adapter: Optional[Any] = None,
     task_context: str = "general software engineering",
+    registry_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieves a persona from the unified registry, synthesising on-the-fly if needed.
 
     Lookup order:
-      1. Exact match in PERSONA_REGISTRY (covers both SDLC and Council tiers).
+      1. Exact match in custom registry (if provided) or PERSONA_REGISTRY.
       2. Case-insensitive fuzzy match against registered role names.
       3. DynamicAgentFactory synthesis via LLM (only when adapter is provided).
       4. Generic fallback persona.
@@ -335,17 +337,44 @@ def get_persona(
         role_name: The name of the role to retrieve.
         adapter: Optional GeminiExecutionAdapter for dynamic synthesis fallback.
         task_context: Task description passed to the dynamic factory when used.
+        registry_path: Optional path to a custom agents JSON file.
 
     Returns:
         A dictionary containing role metadata and prompt instructions.
     """
+    registry = PERSONA_REGISTRY
+    if registry_path and os.path.exists(registry_path):
+        try:
+            with open(registry_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    # Basic validation and extraction of nested sdlc/council structures
+                    custom_registry = {}
+                    
+                    # Handle structured format (like default agents.json)
+                    if "sdlc" in data or "council" in data:
+                        for section in ("sdlc", "council"):
+                            for k, v in data.get(section, {}).items():
+                                if isinstance(v, dict) and "role" in v and "prompt" in v:
+                                    custom_registry[k] = v
+                    # Handle flat format (just a dict of agents)
+                    else:
+                        for k, v in data.items():
+                            if isinstance(v, dict) and "role" in v and "prompt" in v:
+                                custom_registry[k] = v
+                                
+                    if custom_registry:
+                        registry = custom_registry
+        except Exception as e:
+            logger.warning("Failed to load custom registry from %s: %s", registry_path, e)
+
     # 1. Exact match
-    if role_name in PERSONA_REGISTRY:
-        return PERSONA_REGISTRY[role_name]
+    if role_name in registry:
+        return registry[role_name]
 
     # 2. Case-insensitive match
     lower_name = role_name.lower()
-    for key, persona in PERSONA_REGISTRY.items():
+    for key, persona in registry.items():
         if key.lower() == lower_name:
             return persona
 

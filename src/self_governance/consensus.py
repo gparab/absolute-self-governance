@@ -134,10 +134,12 @@ class ConsensusEngine:
         self.model = model
         self.max_seconds = max_seconds
 
+        # Annealing jitter, not cryptography: reproducibility via seed matters,
+        # unpredictability does not.
         if self.seed is not None:
-            self.rng = random.Random(self.seed)
+            self.rng = random.Random(self.seed)  # nosec B311
         else:
-            self.rng = random.Random()
+            self.rng = random.Random()  # nosec B311
 
         self.temp = float(self.initial_temp)
         self.tau = float(self.target_tau)
@@ -150,16 +152,18 @@ class ConsensusEngine:
         else:
             self.adapter = adapter
 
+        self.config: Optional[OrchestratorConfig] = None
         try:
-            config = OrchestratorConfig(config_path)
-            self.advisor_enabled = config.advisor_enabled
-            self.nudge_turn = config.advisor_nudge_turn
-            self.nudge_text = config.advisor_nudge_text
+            self.config = OrchestratorConfig(config_path)
+            self.advisor_enabled = self.config.advisor_enabled
+            self.nudge_turn = self.config.advisor_nudge_turn
+            self.nudge_text = self.config.advisor_nudge_text
         except Exception:
             logger.warning("Failed to initialize OrchestratorConfig in ConsensusEngine; falling back to default advisor configurations.", exc_info=True)
             self.advisor_enabled = True
             self.nudge_turn = 2
             self.nudge_text = "Please call advisor() before committing to an approach or declaring completion."
+            self.config = None
 
         self.justifications: dict[str, dict[str, Any]] = {}
         self.scores: dict[str, float] = {}
@@ -244,7 +248,10 @@ class ConsensusEngine:
         Returns:
             A tuple of (score (float), justification (str)).
         """
-        persona = get_persona(agent)
+        registry_path = None
+        if hasattr(self, "config") and self.config is not None:
+            registry_path = self.config.project_persona_registry
+        persona = get_persona(agent, registry_path=registry_path)
 
         capability_info = ""
         if self.requirements:
@@ -401,7 +408,10 @@ class ConsensusEngine:
                 gated_scores: dict[str, float] = {}
                 for agent, score in self.scores.items():
                     justification = str(new_justifications[agent]["justification"])
-                    persona = get_persona(agent)
+                    registry_path = None
+                    if hasattr(self, "config") and self.config is not None:
+                        registry_path = self.config.project_persona_registry
+                    persona = get_persona(agent, registry_path=registry_path)
                     gate_data = persona.get("quality_gate")
                     if gate_data is not None:
                         from self_governance.models import PersonaQualityGate

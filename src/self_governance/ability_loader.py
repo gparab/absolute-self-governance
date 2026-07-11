@@ -1,11 +1,14 @@
 import os
 import json
+import logging
 from typing import Dict, Any
 
 try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore
+
+logger = logging.getLogger("self_governance.ability_loader")
 
 
 class AbilityLoader:
@@ -30,15 +33,15 @@ class AbilityLoader:
                     with open(filepath, "r", encoding="utf-8") as f:
                         data = json.load(f)
                         abilities[name] = data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Skipping unreadable ability file %s: %s", filepath, e)
             elif ext in (".yaml", ".yml") and yaml is not None:
                 try:
                     with open(filepath, "r", encoding="utf-8") as f:
                         data = yaml.safe_load(f)
                         abilities[name] = data
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Skipping unreadable ability file %s: %s", filepath, e)
         return abilities
 
     def load_ability(self, ability_name: str, agent_or_context: Any) -> bool:

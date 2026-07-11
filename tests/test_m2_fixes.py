@@ -1,6 +1,7 @@
 import os
 import logging
 import pytest
+import tempfile
 from unittest.mock import MagicMock, patch
 from self_governance.billing import calculate_cost
 from self_governance.config import OrchestratorConfig
@@ -18,8 +19,11 @@ def test_calculate_cost():
 
 def test_config_path_persisted():
     """Verify that OrchestratorConfig persists config_path."""
-    config = OrchestratorConfig(config_path="/dummy/path.yaml")
-    assert config.config_path == "/dummy/path.yaml"
+    with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
+        f.write(b"consensus:\n  buffer_limit: 5\n")
+        f.flush()
+        config = OrchestratorConfig(config_path=f.name)
+        assert config.config_path == f.name
 
 
 def test_consensus_engine_config_propagation():
@@ -29,37 +33,43 @@ def test_consensus_engine_config_propagation():
         
         # Set environment variable so adapter is instantiated
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}):
-            _ = ConsensusEngine(
-                initial_roster=["agent_A"],
-                config_path="/dummy/path.yaml"
-            )
-            
-            # Verify OrchestratorConfig is instantiated with the config_path
-            mock_config_class.assert_called_with("/dummy/path.yaml")
-            
-            # Verify GeminiExecutionAdapter is instantiated with the config_path
-            mock_adapter_class.assert_called_with(api_key="test-key", config_path="/dummy/path.yaml")
+            with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
+                f.write(b"consensus:\n  buffer_limit: 5\n")
+                f.flush()
+                _ = ConsensusEngine(
+                    initial_roster=["agent_A"],
+                    config_path=f.name
+                )
+                
+                # Verify OrchestratorConfig is instantiated with the config_path
+                mock_config_class.assert_called_with(f.name)
+                
+                # Verify GeminiExecutionAdapter is instantiated with the config_path
+                mock_adapter_class.assert_called_with(api_key="test-key", config_path=f.name)
 
 
 def test_nudger_propagates_config_path():
     """Verify that ContinuousNudger propagates the config path to run_consensus."""
-    config = OrchestratorConfig(config_path="/dummy/path.yaml")
-    nudger = ContinuousNudger(working_directory=".", config=config)
-    
-    with patch("self_governance.nudger.run_consensus") as mock_run_consensus:
-        mock_result = MagicMock()
-        mock_result.approved_roster = ["agent_A"]
-        mock_result.final_temperature = 1.0
-        mock_result.final_threshold = 0.9
-        mock_result.cycles_needed = 1
-        mock_run_consensus.return_value = mock_result
+    with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
+        f.write(b"consensus:\n  buffer_limit: 5\n")
+        f.flush()
+        config = OrchestratorConfig(config_path=f.name)
+        nudger = ContinuousNudger(working_directory=".", config=config)
         
-        handoff_content = "candidates:\n  - agent_A"
-        nudger.trigger_succession(handoff_content)
-        
-        # Assert that run_consensus was called with config_path propagated
-        called_kwargs = mock_run_consensus.call_args[1]
-        assert called_kwargs.get("config_path") == "/dummy/path.yaml"
+        with patch("self_governance.nudger.run_consensus") as mock_run_consensus:
+            mock_result = MagicMock()
+            mock_result.approved_roster = ["agent_A"]
+            mock_result.final_temperature = 1.0
+            mock_result.final_threshold = 0.9
+            mock_result.cycles_needed = 1
+            mock_run_consensus.return_value = mock_result
+            
+            handoff_content = "candidates:\n  - agent_A"
+            nudger.trigger_succession(handoff_content)
+            
+            # Assert that run_consensus was called with config_path propagated
+            called_kwargs = mock_run_consensus.call_args[1]
+            assert called_kwargs.get("config_path") == f.name
 
 
 def test_consensus_logging(caplog):

@@ -46,6 +46,9 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "nudge_text": "Please call advisor() before committing to an approach or declaring completion.",
         "max_tokens": 2048,
     },
+    "project": {
+        "persona_registry": "src/self_governance/assets/agents.json",
+    },
 }
 
 
@@ -66,7 +69,9 @@ class OrchestratorConfig:
         """
         self.config_path = config_path
         self.config_data: Dict[str, Dict[str, Any]] = copy.deepcopy(DEFAULT_CONFIG)
-        if config_path and os.path.exists(config_path):
+        if config_path:
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Config file not found: {config_path}")
             # Fail fast: a config file the operator pointed at must load and
             # validate, never silently degrade to defaults.
             with open(config_path, "r", encoding="utf-8") as f:
@@ -234,4 +239,9 @@ class OrchestratorConfig:
     def advisor_max_tokens(self) -> int:
         """Gets the max token output limit for the advisor call."""
         return self.config_data["advisor"].get("max_tokens", 2048)
+
+    @property
+    def project_persona_registry(self) -> str:
+        """Gets the path to the project's persona registry JSON file."""
+        return self.config_data["project"].get("persona_registry", "src/self_governance/assets/agents.json")
 

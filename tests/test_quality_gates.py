@@ -39,8 +39,8 @@ class TestConsensusEngineGating:
         from unittest.mock import patch
         from self_governance.agency_agents_adapter import get_persona as real_get_persona
 
-        def mock_get_persona(role):
-            p = real_get_persona(role)
+        def mock_get_persona(role, **kwargs):
+            p = real_get_persona(role, **kwargs)
             if role == "Security Auditor":
                 p = dict(p)
                 p["quality_gate"] = {"min_confidence": 9.5}

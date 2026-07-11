@@ -8,9 +8,6 @@ testing, security scanning, documentation, and advisor consulting.
 import os
 import json
 import logging
-import urllib.request
-import urllib.error
-import time
 import subprocess  # nosec B404
 import sys
 import inspect
@@ -111,137 +108,20 @@ def call_gemini_with_metadata(
             f"Prompt of {len(prompt)} characters exceeds the 500,000-character limit."
         )
 
-    is_openrouter = bool(api_key and api_key.startswith("sk-or-"))
-    model_name = model if (model and ("/" in model or is_openrouter)) else (model or "gemini-2.5-flash")
-
-    # If is_reasoning is False, perform auto-detection on the model name
-    if not is_reasoning:
-        mn_lower = model_name.lower()
-        is_reasoning = any(x in mn_lower for x in ("o1", "o3", "thinking", "reasoning"))
-
-    if is_openrouter:
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "HTTP-Referer": "https://github.com/gparab/absolute-self-governance",
-            "X-Title": "Absolute Self-Governance",
-        }
-        messages = []
-        if is_reasoning:
-            if developer_message:
-                messages.append({"role": "developer", "content": developer_message})
-        else:
-            if system_instruction:
-                messages.append({"role": "system", "content": system_instruction})
-        messages.append({"role": "user", "content": prompt})
-
-        data: Dict[str, Any] = {
-            "model": model_name,
-            "messages": messages,
-        }
-        if not is_reasoning and temperature is not None:
-            data["temperature"] = min(2.0, max(0.0, temperature))
-        if response_mime_type == "application/json" or response_schema:
-            data["response_format"] = {"type": "json_object"}
-    else:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key or ""}
-        data = {"contents": [{"parts": [{"text": prompt}]}]}
-
-        instruction_text = developer_message if is_reasoning else system_instruction
-        if instruction_text:
-            data["systemInstruction"] = {
-                "parts": [{"text": instruction_text}]
-            }
-
-        if response_mime_type or response_schema or max_output_tokens or (not is_reasoning and temperature is not None):
-            gen_config: Dict[str, Any] = {}
-            if response_mime_type:
-                gen_config["responseMimeType"] = response_mime_type
-            if response_schema:
-                gen_config["responseSchema"] = response_schema
-            if max_output_tokens:
-                gen_config["maxOutputTokens"] = max_output_tokens
-            if not is_reasoning and temperature is not None:
-                gen_config["temperature"] = min(2.0, max(0.0, temperature))
-            data["generationConfig"] = gen_config
-
-    attempts = 3
-    delay = 1.0
-
-    for attempt in range(attempts):
-        req = urllib.request.Request(
-            url, data=json.dumps(data).encode(), headers=headers, method="POST"
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:  # nosec B310
-                res_data = json.loads(response.read().decode())
-                if is_openrouter:
-                    choices = res_data.get("choices", [])
-                    usage_metadata = res_data.get("usage", {})
-                    prompt_tokens = usage_metadata.get("prompt_tokens", 0)
-                    completion_tokens = usage_metadata.get("completion_tokens", 0)
-                    text = ""
-                    finish_reason = "STOP"
-                    if choices:
-                        finish_reason = choices[0].get("finish_reason", "STOP")
-                        if finish_reason is None:
-                            finish_reason = "STOP"
-                        else:
-                            finish_reason = str(finish_reason).upper()
-                        text = choices[0].get("message", {}).get("content", "").strip()
-                else:
-                    candidates = res_data.get("candidates", [])
-                    usage_metadata = res_data.get("usageMetadata", {})
-                    prompt_tokens = usage_metadata.get("promptTokenCount", 0)
-                    completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
-
-                    text = ""
-                    finish_reason = "STOP"
-                    if candidates:
-                        finish_reason = candidates[0].get("finishReason", "STOP")
-                        content = candidates[0].get("content", {})
-                        parts = content.get("parts", [])
-                        if parts:
-                            text = parts[0].get("text", "").strip()
-
-                return {
-                    "text": text,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "finish_reason": finish_reason,
-                }
-        except urllib.error.HTTPError as he:
-            if he.code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
-                logger.warning(
-                    "Gemini API returned transient error %s. Retrying in %s seconds...",
-                    he.code,
-                    delay,
-                )
-                time.sleep(delay)
-                delay *= 2.0
-            else:
-                logger.error(
-                    "Gemini API HTTP Error %s: %s", he.code, he.read().decode()
-                )
-                break
-        except Exception as e:
-            if attempt < attempts - 1:
-                logger.warning("Query error: %s. Retrying in %s seconds...", e, delay)
-                time.sleep(delay)
-                delay *= 2.0
-            else:
-                logger.error("Failed to query Gemini API: %s", e)
-                break
-
-    return {
-        "text": "",
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "finish_reason": "ERROR",
-        "error": True,
-    }
+    from self_governance.providers import get_provider
+    provider = get_provider(api_key, model)
+    return provider.generate_content(
+        prompt=prompt,
+        api_key=api_key,
+        model=model,
+        system_instruction=system_instruction,
+        developer_message=developer_message,
+        response_mime_type=response_mime_type,
+        response_schema=response_schema,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        is_reasoning=is_reasoning,
+    )
 
 
 def call_gemini(
@@ -920,6 +800,16 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             model=self.model_development,
             agents=agents,
         )
+
+    def get_billing_metrics(self) -> Dict[str, float]:
+        from self_governance.billing import calculate_cost
+
+        cost = calculate_cost(self.prompt_tokens, self.completion_tokens)
+        return {
+            "prompt_tokens": float(self.prompt_tokens),
+            "completion_tokens": float(self.completion_tokens),
+            "estimated_cost_usd": cost,
+        }
 
     def consult_advisor(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Consults high-intelligence advisor agent with dialogue history.

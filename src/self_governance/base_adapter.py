@@ -149,3 +149,13 @@ class BaseExecutionAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_billing_metrics(self) -> Dict[str, float]:
+        """Retrieve billing metrics (tokens, estimated cost) for this adapter.
+        
+        Returns:
+            A dictionary with keys like 'prompt_tokens', 'completion_tokens',
+            and 'estimated_cost_usd'.
+        """
+        pass
+

@@ -40,6 +40,6 @@ watcher:
 
 
 def test_config_invalid_file():
-    # Should fallback gracefully without raising
-    config = OrchestratorConfig("/nonexistent/file.yaml")
-    assert config.consensus_buffer_limit == 3
+    import pytest
+    with pytest.raises(FileNotFoundError, match="Config file not found: /nonexistent/file.yaml"):
+        OrchestratorConfig("/nonexistent/file.yaml")

@@ -156,6 +156,23 @@ def parse_args():
     parser_inject.add_argument(
         "--workdir", default=".", help="Working directory (default: '.')"
     )
+    # benchmark subcommand
+    parser_bench = subparsers.add_parser(
+        "benchmark", help="Run the diagnostic comparison benchmark suite"
+    )
+    parser_bench.add_argument(
+        "--reps", type=int, default=1,
+        help="Repetitions per task per mode (default: 1, sequential). "
+             ">1 runs the concurrent, process-isolated sweep instead.",
+    )
+    parser_bench.add_argument(
+        "--workers", type=int, default=4,
+        help="Concurrent workers for --reps > 1 (default: 4, max 16).",
+    )
+    parser_bench.add_argument(
+        "--out", type=str, default=None,
+        help="Path to save or resume JSONL benchmark outcomes.",
+    )
 
     return parser.parse_args()
 
@@ -597,13 +614,70 @@ def main():
         "import-agents": lambda: handle_import_agents(args),
         "import_agents": lambda: handle_import_agents(args),
         "inject-constraint": lambda: handle_inject_constraint(args),
+        "benchmark": lambda: handle_benchmark(args),
     }
 
     handler = handlers.get(args.subcommand)
     if handler:
         handler()
+    else:
+        print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
+        sys.exit(1)
+
+
+def handle_benchmark(args):
+    if args.reps <= 1:
+        from self_governance.benchmark import run_benchmark
+
+        results = run_benchmark(out_path=args.out)
+        print(
+            f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}"
+        )
+        print("-" * 96)
+        for task_id, metric in results.items():
+            b = metric["baseline"]
+            a = metric["asg"]
+            b_str = f"{'PASS' if b['passed'] else 'FAIL'} / {b['latency_sec']}s / ${b['estimated_cost_usd']:.5f}"
+            a_str = f"{'PASS' if a['passed'] else 'FAIL'} / {a['latency_sec']}s / ${a['estimated_cost_usd']:.5f}"
+            print(f"{metric['name']:<30} | {b_str:<30} | {a_str:<30}")
+    else:
+        from self_governance.benchmark import run_benchmark_parallel
+
+        done = {"n": 0}
+
+        def _progress(outcome):
+            done["n"] += 1
+            r = outcome["result"]
+            status = "PASS" if r.get("passed") else "FAIL"
+            print(
+                f"[{done['n']}] {outcome['task_id']} {outcome['mode']} "
+                f"rep {outcome['rep']+1}/{args.reps}: {status}"
+            )
+
+        print(
+            f"Running {args.reps} reps/task/mode with {args.workers} "
+            f"concurrent workers (each in its own isolated tempdir)...\n"
+        )
+        results = run_benchmark_parallel(
+            reps=args.reps, workers=args.workers, on_result=_progress, resume_path=args.out
+        )
+
+        print(f"\n| {'Task':<24} | {'Mode':<9} | {'Pass':<8} | {'MeanLat':<9} | {'MeanCost':<10} |")
+        print("|" + "-" * 26 + "|" + "-" * 11 + "|" + "-" * 10 + "|" + "-" * 11 + "|" + "-" * 12 + "|")
+        for task_id, data in results.items():
+            for mode in ("baseline", "asg"):
+                runs = data[mode]
+                n = len(runs)
+                if n == 0:
+                    continue
+                passed = sum(1 for r in runs if r.get("passed"))
+                mean_lat = sum(r.get("latency_sec", 0) for r in runs) / n
+                mean_cost = sum(r.get("estimated_cost_usd", 0) for r in runs) / n
+                print(
+                    f"| {task_id:<24} | {mode:<9} | {passed}/{n:<6} | "
+                    f"{mean_lat:<9.1f} | ${mean_cost:<9.6f} |"
+                )
 
 
 if __name__ == "__main__":
     main()
-
