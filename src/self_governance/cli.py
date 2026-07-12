@@ -84,6 +84,40 @@ def parse_args():
         "--port", type=int, default=8642, help="Monitor port (default: 8642)"
     )
 
+    # demo subcommand: zero-setup, zero-cost walkthrough of dynamic team sizing
+    parser_demo = subparsers.add_parser(
+        "demo", help="Zero-setup demo of dynamic swarm sizing (no API key needed)"
+    )
+    parser_demo.add_argument(
+        "--pause", type=float, default=3.0,
+        help="Seconds to pause between scenarios (default: 3.0).",
+    )
+
+    # onboard subcommand: guided tenant + webhook setup, replacing manual
+    # config-file editing and clicking through GitHub Settings by hand
+    parser_onboard = subparsers.add_parser(
+        "onboard", help="Guided setup: provision a tenant and wire the GitHub webhook"
+    )
+    parser_onboard.add_argument(
+        "--name", required=True, help="A name for this tenant (e.g. your org or repo name)."
+    )
+    parser_onboard.add_argument(
+        "--repo", default=None,
+        help="GitHub 'owner/repo' to wire the webhook to. Requires --github-token "
+             "and --base-url to auto-register; otherwise prints manual steps.",
+    )
+    parser_onboard.add_argument(
+        "--github-token", default=None,
+        help="A GitHub personal access token with repo admin:repo_hook scope, "
+             "used only to register the webhook -- never stored.",
+    )
+    parser_onboard.add_argument(
+        "--base-url", default=None,
+        help="Publicly reachable base URL where this instance's /webhook "
+             "endpoint can receive GitHub's requests (e.g. an ngrok/tunnel "
+             "URL or your deployed host).",
+    )
+
 
 
     # session-save subcommand
@@ -286,6 +320,65 @@ def handle_dev(args, config):
     except KeyboardInterrupt:
         nudger.stop()
 
+
+
+def handle_demo(args) -> None:
+    """Runs the zero-setup, zero-cost demo of dynamic swarm sizing.
+
+    Args:
+        args: Parsed command-line arguments.
+    """
+    from self_governance.demo import run_demo
+
+    print("ASG demo: no API key required, zero cost, zero setup.\n")
+    run_demo(pause_seconds=args.pause)
+
+
+def handle_onboard(args) -> None:
+    """Guided setup: provisions a tenant and, if given a repo, GitHub token,
+    and base URL, auto-registers the webhook; otherwise prints the manual
+    steps to do it by hand.
+
+    Args:
+        args: Parsed command-line arguments.
+    """
+    from self_governance.onboarding import run_onboarding
+
+    result = run_onboarding(
+        tenant_name=args.name,
+        repo=args.repo,
+        github_token=args.github_token,
+        base_url=args.base_url,
+    )
+
+    print("\n" + "=" * 60)
+    print("  ASG onboarding")
+    print("=" * 60)
+    print(f"  Tenant ID:      {result['tenant_id']}")
+    print(f"  API key:        {result['api_key']}")
+    print("                  (store this now -- it will not be shown again)")
+    print(f"  Webhook secret: {result['webhook_secret']}")
+
+    if result["webhook_auto_registered"]:
+        print(f"\n  GitHub webhook registered automatically at {result['webhook_url']}")
+        print(f"  (webhook id: {result.get('webhook_id')})")
+    else:
+        if result.get("webhook_registration_error"):
+            print(f"\n  Automatic webhook registration failed: {result['webhook_registration_error']}")
+        print("\n  Next steps (manual webhook setup):")
+        print("  1. Deploy this instance somewhere GitHub can reach it, or")
+        print("     start a tunnel (e.g. `ngrok http 8000`).")
+        print("  2. In your repo: Settings -> Webhooks -> Add webhook")
+        print("       Payload URL:  <your-base-url>/webhook")
+        print("       Content type: application/json")
+        print(f"       Secret:       {result['webhook_secret']}")
+        print("       Events:       Issues, Pull requests")
+        print("  3. Set these environment variables before starting the server:")
+        print(f"       export WEBHOOK_SECRET={result['webhook_secret']}")
+        print("       export GEMINI_API_KEY=...")
+        print("  4. Verify it's wired: curl <your-base-url>/status "
+              f"-H 'Authorization: Bearer {result['api_key']}'")
+    print("=" * 60)
 
 
 def handle_retro(args) -> None:
@@ -606,6 +699,8 @@ def main():
         "dimension": lambda: handle_dimension(args),
         "stats": lambda: handle_stats(args),
         "dev": lambda: handle_dev(args, config),
+        "demo": lambda: handle_demo(args),
+        "onboard": lambda: handle_onboard(args),
 
         "session-save": lambda: handle_session_save(args, config),
         "session_save": lambda: handle_session_save(args, config),
