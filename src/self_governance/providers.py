@@ -10,6 +10,7 @@ import urllib.error
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from self_governance.config import DEFAULT_MODEL
 
 logger = logging.getLogger("self_governance.providers")
 
@@ -51,7 +52,7 @@ class GeminiProvider(LLMProvider):
         is_reasoning: bool = False,
         grounding_tool: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        model_name = model or "gemini-2.5-flash"
+        model_name = model or DEFAULT_MODEL
         if not is_reasoning:
             mn_lower = model_name.lower()
             is_reasoning = any(x in mn_lower for x in ("o1", "o3", "thinking", "reasoning"))

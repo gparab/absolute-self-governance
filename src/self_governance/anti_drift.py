@@ -9,6 +9,7 @@ import json
 import logging
 import hashlib
 from typing import List
+from self_governance.config import DEFAULT_MODEL
 
 
 logger = logging.getLogger("self_governance.anti_drift")
@@ -122,7 +123,7 @@ def self_critique(proposed_plan: str, goal: str, adapter=None) -> dict:
             prompt,
             response_mime_type="application/json",
             response_schema=schema,
-            model=getattr(adapter, "model_review", "gemini-2.5-flash")
+            model=getattr(adapter, "model_review", DEFAULT_MODEL)
         )
         res_text = res.get("text", "") if isinstance(res, dict) else str(res)
         data = json.loads(res_text)

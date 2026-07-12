@@ -5,10 +5,19 @@ AST-based code complexity checking and task analysis keywords.
 """
 
 import logging
+import os
 import ast
 from typing import Optional
 
 logger = logging.getLogger("self_governance.economics")
+
+# Adaptive routing tiers: which model name to recommend for each complexity
+# tier. Overridable per-deployment via env vars so a user isn't locked into
+# these specific model names -- e.g. ASG_MODEL_TIER_3=claude-opus-4 for a
+# non-Gemini provider.
+MODEL_TIER_3 = os.getenv("ASG_MODEL_TIER_3", "gemini-2.5-pro")  # complex/high-risk
+MODEL_TIER_2 = os.getenv("ASG_MODEL_TIER_2", "gemini-1.5-pro")  # moderate
+MODEL_TIER_1 = os.getenv("ASG_MODEL_TIER_1", "gemini-1.5-flash")  # routine/simple
 
 
 class BudgetExceededError(ValueError):
@@ -130,14 +139,14 @@ def analyze_ast_complexity(code: str) -> Optional[str]:
 
     # Tier 3: Concurrency, network, cryptography/security, or >150 nodes
     if node_count > 150 or has_concurrency or has_network or has_crypto:
-        return "gemini-2.5-pro"
+        return MODEL_TIER_3
 
     # Tier 2: Typical classes, multiple functions, or error handling
     if classes > 0 or functions > 1 or tries > 0:
-        return "gemini-1.5-pro"
+        return MODEL_TIER_2
 
     # Tier 1: Low complexity (simple variable assignments, low loop count, few nodes)
-    return "gemini-1.5-flash"
+    return MODEL_TIER_1
 
 
 def route_model(task_type: str, code_snippet: Optional[str] = None) -> str:
@@ -145,8 +154,8 @@ def route_model(task_type: str, code_snippet: Optional[str] = None) -> str:
 
     Routes based on AST code complexity if a code snippet is provided or if task_type
     is parseable code.
-    Routine formatting, linting, parsing, and basic checks route to "gemini-1.5-flash".
-    Planning, critiquing, and complex reasoning route to "gemini-1.5-pro".
+    Routine formatting, linting, parsing, and basic checks route to MODEL_TIER_1.
+    Planning, critiquing, and complex reasoning route to MODEL_TIER_2.
 
     Args:
         task_type: Description of the task or raw code if task is execution.
@@ -170,9 +179,9 @@ def route_model(task_type: str, code_snippet: Optional[str] = None) -> str:
     complex_keywords = ["plan", "critique", "reason", "analyze", "consensus", "succession", "complex"]
 
     if any(kw in task_lower for kw in complex_keywords):
-        return "gemini-1.5-pro"
+        return MODEL_TIER_2
     if any(kw in task_lower for kw in routine_keywords):
-        return "gemini-1.5-flash"
+        return MODEL_TIER_1
 
-    return "gemini-1.5-pro"
+    return MODEL_TIER_2
 

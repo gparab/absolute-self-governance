@@ -18,7 +18,7 @@ self-governance demo         # no API key, no cost, no setup — see it work in 
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
 
-📄 **[Read the paper](paper.pdf)** — including a live benchmark (§4.7) that didn't confirm our own hypothesis about multi-agent overhead paying off on harder tasks. We scaled it up, it didn't hold, and we reported the real number instead of the flattering one.
+📄 **[Read the paper](paper.pdf)** — including a live benchmark (§4.7) that didn't confirm our own hypothesis about multi-agent overhead paying off on harder tasks. We scaled it up, it didn't hold, and we reported the real number instead of the flattering one. See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) to reproduce it (model is a runtime `--model` flag, not hardcoded).
 
 ---
 

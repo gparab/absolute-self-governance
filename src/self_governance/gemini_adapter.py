@@ -17,6 +17,7 @@ from self_governance.models import Agent, SessionStatus
 from self_governance.billing import calculate_cost
 from self_governance.tracing import tracer
 from self_governance.economics import TaskWallet, route_model
+from self_governance.config import DEFAULT_MODEL
 
 logger = logging.getLogger("self_governance.gemini_adapter")
 
@@ -192,7 +193,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             self.model_security = model_security or config.model_security
         except Exception:
             logger.warning("Failed to initialize OrchestratorConfig in GeminiExecutionAdapter constructor; falling back to default model configurations.", exc_info=True)
-            default_val = model_default or "gemini-2.5-flash"
+            default_val = model_default or DEFAULT_MODEL
             self.model_default = default_val
             self.model_development = model_development or default_val
             self.model_review = model_review or default_val

@@ -13,6 +13,12 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("self_governance.config")
 
+# Single source of truth for the fallback model name, used everywhere a
+# model isn't otherwise configured. Override via config.yaml's `models:`
+# section (preferred, per-purpose) or ASG_DEFAULT_MODEL (global override,
+# e.g. for a non-Gemini provider) -- never hardcode a model name elsewhere.
+DEFAULT_MODEL = os.getenv("ASG_DEFAULT_MODEL", "gemini-2.5-flash")
+
 DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
     "consensus": {
         "buffer_limit": 3,
@@ -34,11 +40,11 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "webhook_matrix": [[1.0, 0.0], [0.0, 1.0], [0.5, 0.5], [0.2, 0.8]],
     },
     "models": {
-        "default": "gemini-2.5-flash",
-        "succession": "gemini-2.5-flash",
-        "development": "gemini-2.5-flash",
-        "review": "gemini-2.5-flash",
-        "security": "gemini-2.5-flash",
+        "default": DEFAULT_MODEL,
+        "succession": DEFAULT_MODEL,
+        "development": DEFAULT_MODEL,
+        "review": DEFAULT_MODEL,
+        "security": DEFAULT_MODEL,
     },
     "advisor": {
         "enabled": True,
@@ -198,7 +204,7 @@ class OrchestratorConfig:
     @property
     def model_default(self) -> str:
         """Gets the fallback default LLM name."""
-        return self.config_data["models"].get("default", "gemini-2.5-flash")
+        return self.config_data["models"].get("default", DEFAULT_MODEL)
 
     @property
     def model_succession(self) -> str:

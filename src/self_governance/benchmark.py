@@ -17,18 +17,28 @@ def load_benchmark_tasks() -> List[Dict[str, Any]]:
         return json.load(f)
 
 
-def run_benchmark(api_key: Optional[str] = None, out_path: Optional[str] = None) -> Dict[str, Any]:
-    """Runs the diagnostic code challenges under baseline and ASG modes."""
+def run_benchmark(
+    api_key: Optional[str] = None,
+    out_path: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Runs the diagnostic code challenges under baseline and ASG modes.
+
+    model, if given, overrides the adapter's configured default for every
+    call in the sweep -- baseline and ASG must run against the same model
+    to be a valid comparison. Leave unset to use whatever is configured
+    via config.yaml/OrchestratorConfig (see docs/BENCHMARKING.md).
+    """
     tasks = load_benchmark_tasks()
     results = {}
-    
+
     # Load previously completed outcomes if resuming
     done_keys = set()
     if out_path:
         for outcome in _load_resume_outcomes(out_path):
             if "error" not in outcome["result"]:
                 done_keys.add((outcome["task_id"], outcome["mode"]))
-    
+
     checkpoint_f = open(out_path, "a", encoding="utf-8") if out_path else None
 
     for task in tasks:
@@ -37,7 +47,7 @@ def run_benchmark(api_key: Optional[str] = None, out_path: Optional[str] = None)
 
         # 1. Run Baseline (Direct Single-Agent Code Gen)
         if (task_id, "baseline") not in done_keys:
-            baseline_metrics = run_baseline_mode(task, api_key)
+            baseline_metrics = run_baseline_mode(task, api_key, model=model)
             if checkpoint_f:
                 checkpoint_f.write(json.dumps({
                     "task_id": task_id, "mode": "baseline", "rep": 0, "result": baseline_metrics
@@ -48,7 +58,7 @@ def run_benchmark(api_key: Optional[str] = None, out_path: Optional[str] = None)
 
         # 2. Run ASG (Deliberation, Entropy Sizing, Multi-Agent Loop)
         if (task_id, "asg") not in done_keys:
-            asg_metrics = run_asg_mode(task, api_key)
+            asg_metrics = run_asg_mode(task, api_key, model=model)
             if checkpoint_f:
                 checkpoint_f.write(json.dumps({
                     "task_id": task_id, "mode": "asg", "rep": 0, "result": asg_metrics
@@ -69,13 +79,25 @@ def run_benchmark(api_key: Optional[str] = None, out_path: Optional[str] = None)
     return results
 
 
-def run_baseline_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
+def run_baseline_mode(
+    task: Dict[str, Any], api_key: Optional[str], model: Optional[str] = None
+) -> Dict[str, Any]:
     """Simulates a baseline run with direct, single-step generation."""
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     from self_governance.metrics import ASG_PIPELINE_LATENCY
 
     start_time = time.time()
-    adapter = GeminiExecutionAdapter(api_key=api_key)
+    # Force every stage onto the same model when one is given: the
+    # constructor's model_development/review/security each fall back
+    # independently to config.yaml, so model_default alone would not
+    # guarantee a single-model run.
+    adapter = GeminiExecutionAdapter(
+        api_key=api_key,
+        model_default=model,
+        model_development=model,
+        model_review=model,
+        model_security=model,
+    )
 
     plan = {"task": task["description"]}
 
@@ -116,7 +138,9 @@ def run_baseline_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str,
     }
 
 
-def run_asg_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]:
+def run_asg_mode(
+    task: Dict[str, Any], api_key: Optional[str], model: Optional[str] = None
+) -> Dict[str, Any]:
     """Simulates the ASG run with consensus deliberation, swarm sizing, and multi-agent pipeline."""
     from self_governance.consensus import run_consensus
     from self_governance.dimensioning import dimension_swarm
@@ -145,7 +169,13 @@ def run_asg_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]
 
         from self_governance.agency_agents_adapter import get_persona
 
-        adapter = GeminiExecutionAdapter(api_key=api_key)
+        adapter = GeminiExecutionAdapter(
+            api_key=api_key,
+            model_default=model,
+            model_development=model,
+            model_review=model,
+            model_security=model,
+        )
 
         # Convert consensus results into Agent schemas using real personas
         agents = []
@@ -201,7 +231,11 @@ def run_asg_mode(task: Dict[str, Any], api_key: Optional[str]) -> Dict[str, Any]
 
 
 def _run_one_isolated(
-    task: Dict[str, Any], mode: str, rep: int, api_key: Optional[str]
+    task: Dict[str, Any],
+    mode: str,
+    rep: int,
+    api_key: Optional[str],
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run a single (task, mode, rep) unit in its own process and its own
     tempdir. Runs in a ProcessPoolExecutor worker -- must be a top-level,
@@ -217,7 +251,7 @@ def _run_one_isolated(
         os.chdir(workdir)
         mode_fn = run_baseline_mode if mode == "baseline" else run_asg_mode
         try:
-            result = mode_fn(task, api_key)
+            result = mode_fn(task, api_key, model=model)
         except Exception as e:
             result = {
                 "passed": False,
@@ -253,6 +287,7 @@ def run_benchmark_parallel(
     workers: int = 4,
     on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
     resume_path: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the benchmark across multiple repetitions, concurrently, each
     repetition isolated in its own process and working directory.
@@ -281,6 +316,12 @@ def run_benchmark_parallel(
     quota cutoff can fail dozens of queued units in a row, and marking
     those permanently "complete" would silently and irrecoverably drop
     them from every future resume.
+
+    model, if given, overrides the configured default for every call in
+    the sweep. A resumed sweep must use the same model as the run that
+    started its checkpoint file -- mixing models within one checkpoint
+    invalidates the baseline-vs-ASG comparison; use a separate
+    resume_path per model.
     """
     workers = max(1, min(workers, 16))
     tasks = load_benchmark_tasks()
@@ -309,7 +350,7 @@ def run_benchmark_parallel(
     try:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [
-                pool.submit(_run_one_isolated, task, mode, rep, api_key)
+                pool.submit(_run_one_isolated, task, mode, rep, api_key, model)
                 for task, mode, rep in units
             ]
             for future in as_completed(futures):

@@ -173,6 +173,13 @@ def parse_args():
         "--out", type=str, default=None,
         help="Path to save or resume JSONL benchmark outcomes.",
     )
+    parser_bench.add_argument(
+        "--model", type=str, default=None,
+        help="Model name to use for every call in the sweep, e.g. "
+             "'gemini-2.5-flash' (default: whatever config.yaml/"
+             "OrchestratorConfig configures). Baseline and ASG modes "
+             "always run against the same model within one sweep.",
+    )
 
     return parser.parse_args()
 
@@ -629,7 +636,7 @@ def handle_benchmark(args):
     if args.reps <= 1:
         from self_governance.benchmark import run_benchmark
 
-        results = run_benchmark(out_path=args.out)
+        results = run_benchmark(out_path=args.out, model=args.model)
         print(
             f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}"
         )
@@ -656,10 +663,15 @@ def handle_benchmark(args):
 
         print(
             f"Running {args.reps} reps/task/mode with {args.workers} "
-            f"concurrent workers (each in its own isolated tempdir)...\n"
+            f"concurrent workers (each in its own isolated tempdir)"
+            f"{f', model={args.model}' if args.model else ''}...\n"
         )
         results = run_benchmark_parallel(
-            reps=args.reps, workers=args.workers, on_result=_progress, resume_path=args.out
+            reps=args.reps,
+            workers=args.workers,
+            on_result=_progress,
+            resume_path=args.out,
+            model=args.model,
         )
 
         print(f"\n| {'Task':<24} | {'Mode':<9} | {'Pass':<8} | {'MeanLat':<9} | {'MeanCost':<10} |")

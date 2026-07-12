@@ -32,6 +32,39 @@ def test_load_benchmark_tasks():
     }
 
 
+def test_model_param_threads_through_to_adapter_construction(monkeypatch):
+    """--model must reach every stage of the adapter (default/development/
+    review/security), not just one -- otherwise baseline and ASG could
+    silently run different stages against different models within the
+    same sweep, invalidating the comparison."""
+    from self_governance.benchmark import run_baseline_mode
+
+    captured = {}
+
+    class FakeAdapter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def execute_development(self, agents, plan):
+            return {"written_files": []}
+
+        def execute_tests(self, agents, changes, test_target=None):
+            return {"status": "completed"}
+
+        def get_billing_metrics(self):
+            return {"estimated_cost_usd": 0.0}
+
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.GeminiExecutionAdapter", FakeAdapter
+    )
+    run_baseline_mode(_TINY_TASK, api_key=None, model="some-custom-model")
+
+    assert captured["model_default"] == "some-custom-model"
+    assert captured["model_development"] == "some-custom-model"
+    assert captured["model_review"] == "some-custom-model"
+    assert captured["model_security"] == "some-custom-model"
+
+
 def test_run_benchmark_mocked(monkeypatch):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
 
@@ -88,7 +121,7 @@ def test_run_one_isolated_uses_a_distinct_tempdir_per_call(monkeypatch):
 
     seen_cwds = []
 
-    def fake_mode_fn(task, api_key):
+    def fake_mode_fn(task, api_key, model=None):
         seen_cwds.append(os.getcwd())
         return {"passed": True, "latency_sec": 0.0, "estimated_cost_usd": 0.0}
 
@@ -149,7 +182,7 @@ def test_run_one_isolated_captures_worker_exception(monkeypatch):
     whole pool -- one bad task/rep/mode shouldn't kill an entire sweep."""
     import self_governance.benchmark as bm
 
-    def boom(task, api_key):
+    def boom(task, api_key, model=None):
         raise RuntimeError("simulated worker failure")
 
     monkeypatch.setattr(bm, "run_baseline_mode", boom)
