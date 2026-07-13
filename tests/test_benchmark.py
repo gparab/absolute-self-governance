@@ -5,6 +5,7 @@ from unittest.mock import patch
 from self_governance.benchmark import (
     run_benchmark,
     run_benchmark_parallel,
+    run_asg_mode,
     load_benchmark_tasks,
 )
 from self_governance.cli import main
@@ -63,6 +64,110 @@ def test_model_param_threads_through_to_adapter_construction(monkeypatch):
     assert captured["model_development"] == "some-custom-model"
     assert captured["model_review"] == "some-custom-model"
     assert captured["model_security"] == "some-custom-model"
+
+
+def _mock_asg_stages(monkeypatch, dev_fn, test_fn):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setattr(GeminiExecutionAdapter, "execute_development", dev_fn)
+    monkeypatch.setattr(GeminiExecutionAdapter, "execute_tests", test_fn)
+    monkeypatch.setattr(
+        GeminiExecutionAdapter, "review_code", lambda self, a, c: {"status": "completed"}
+    )
+    monkeypatch.setattr(
+        GeminiExecutionAdapter,
+        "run_security_scan",
+        lambda self, a, c: {"status": "completed"},
+    )
+
+
+def test_asg_repair_loop_feeds_failure_back_and_stops_on_pass(monkeypatch, tmp_path):
+    """A failed test run must trigger a regeneration that carries the
+    failure output and the acceptance tests, and the loop must stop as
+    soon as a round passes -- this is the pipeline's corrective
+    mechanism (spec 2026-07-12-asg-repair-loop-design.md R1/R3)."""
+    monkeypatch.chdir(tmp_path)
+    calls = {"dev": 0, "test": 0}
+
+    def fake_dev(self, agents, plan):
+        calls["dev"] += 1
+        assert "acceptance_tests" in plan, "QA perspective must see the tests"
+        if calls["dev"] > 1:
+            assert "previous_attempt_failed_tests" in plan
+            assert "1 failed" in plan["previous_attempt_failed_tests"]
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        calls["test"] += 1
+        if calls["test"] == 1:
+            return {"status": "failed", "raw_test_output": "1 failed: test_x"}
+        return {"status": "completed", "raw_test_output": "1 passed"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["passed"] is True
+    assert res["repair_rounds"] == 1
+    assert calls["dev"] == 2
+    assert calls["test"] == 2
+
+
+def test_asg_repair_loop_caps_at_two_rounds(monkeypatch, tmp_path):
+    """A persistently failing unit must stop after 2 repair rounds --
+    honest failure, not an infinite retry burn."""
+    monkeypatch.chdir(tmp_path)
+    calls = {"dev": 0, "test": 0}
+
+    def fake_dev(self, agents, plan):
+        calls["dev"] += 1
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        calls["test"] += 1
+        return {"status": "failed", "raw_test_output": "still failing"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["passed"] is False
+    assert res["repair_rounds"] == 2
+    assert calls["dev"] == 3  # initial + 2 repairs
+    assert calls["test"] == 3
+
+
+def test_execute_development_reformat_retry_recovers_unparseable_output(
+    monkeypatch, tmp_path
+):
+    """When a model returns prose instead of the JSON contract, one
+    reformat call must recover it instead of silently writing zero
+    files (spec R2 -- observed live as ASG's dominant failure mode)."""
+    monkeypatch.chdir(tmp_path)
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    adapter = GeminiExecutionAdapter(api_key="test-key")
+    responses = iter(
+        [
+            "Sure! Here's my implementation:\ndef f(): return 1",
+            json.dumps(
+                {
+                    "explanation": "reformatted",
+                    "written_files": [
+                        {"filepath": "recovered.py", "content": "def f(): return 1\n"}
+                    ],
+                }
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        GeminiExecutionAdapter,
+        "_call_gemini_and_track",
+        lambda self, *a, **kw: next(responses),
+    )
+
+    res = adapter.execute_development([], {"task": "write f"})
+
+    assert res["written_files"], "reformat retry should have recovered the files"
+    assert os.path.exists("recovered.py")
 
 
 def test_run_benchmark_mocked(monkeypatch):

@@ -189,8 +189,14 @@ def run_asg_mode(
                 )
             )
 
-        # Execute through hardened adapter
-        plan = {"task": task["description"]}
+        # Execute through hardened adapter. The QA perspective gets the
+        # actual acceptance tests -- that's what a "QA Specialist" in the
+        # roster should mean, and the tests ARE the spec. Baseline stays
+        # description-only by definition.
+        plan = {
+            "task": task["description"],
+            "acceptance_tests": task["test_code"],
+        }
         exec_res = adapter.execute_development(agents, plan)
         written_files = exec_res.get("written_files", [])
 
@@ -203,9 +209,34 @@ def run_asg_mode(
     adapter.review_code(agents, exec_res)
     adapter.run_security_scan(agents, exec_res)
 
-    # Run test verification sandbox
+    # Run test verification sandbox, then repair: a failed test feeds its
+    # output back for regeneration (max 2 rounds). This is the pipeline's
+    # corrective mechanism -- before it existed, the review/test stages
+    # burned cost without ever being able to change the outcome, which is
+    # why two independent sweeps measured ASG at or below baseline.
+    # Repair rounds are inside the latency/cost measurement: no free retries.
     test_res = adapter.execute_tests(agents, {}, test_target=test_filepath)
     passed = test_res.get("status") == "completed"
+    repair_rounds = 0
+
+    while not passed and repair_rounds < 2:
+        repair_rounds += 1
+        failure_log = test_res.get("raw_test_output") or test_res.get("output", "")
+        repair_plan = {
+            "task": task["description"],
+            "acceptance_tests": task["test_code"],
+            "previous_attempt_failed_tests": str(failure_log)[:4000],
+            "instruction": (
+                "The previous implementation failed the acceptance tests above. "
+                "Rewrite the implementation file so the tests pass."
+            ),
+        }
+        repair_res = adapter.execute_development(agents, repair_plan)
+        for f_path in repair_res.get("written_files", []):
+            if f_path not in written_files:
+                written_files.append(f_path)
+        test_res = adapter.execute_tests(agents, {}, test_target=test_filepath)
+        passed = test_res.get("status") == "completed"
 
     # Cleanup files
     for f_path in written_files:
@@ -225,6 +256,7 @@ def run_asg_mode(
 
     return {
         "passed": passed,
+        "repair_rounds": repair_rounds,
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
     }

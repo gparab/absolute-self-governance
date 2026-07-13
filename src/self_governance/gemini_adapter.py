@@ -590,6 +590,34 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         written_files = self._write_files_legacy(
             response_text, base_dir, package_dir
         )
+
+        # 3. Last resort: both parsers produced nothing from a non-empty
+        # response (observed live: reasoning models emitting prose or
+        # truncated JSON). Without this, a formatting hiccup silently
+        # becomes "wrote zero files" and a guaranteed downstream test
+        # failure indistinguishable from bad code. One reformat call.
+        if not written_files and response_text.strip():
+            logger.info("Both parsers yielded no files; attempting one reformat call.")
+            reformat_prompt = (
+                "Reformat the following response as a valid JSON object with an "
+                "'explanation' string and a 'written_files' array of objects, each "
+                "with 'filepath' and 'content'. Preserve the code exactly; output "
+                f"ONLY the JSON.\n\nResponse to reformat:\n{response_text}"
+            )
+            retry_text = self._call_gemini_and_track(
+                reformat_prompt,
+                response_schema=schema,
+                response_mime_type="application/json",
+            )
+            if retry_text:
+                try:
+                    written_files = self._write_files_from_json(
+                        retry_text, base_dir, package_dir
+                    )
+                    response_text = retry_text
+                except Exception as retry_err:
+                    logger.warning("Reformat retry also failed to parse: %s", retry_err)
+
         return {
             "status": SessionStatus.COMPLETED.value.lower(),
             "output": response_text,
