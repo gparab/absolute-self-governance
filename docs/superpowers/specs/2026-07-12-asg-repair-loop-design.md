@@ -66,3 +66,31 @@ Root causes confirmed by code reading and a live captured diagnostic:
 ASG aggregate pass rate ≥ baseline on a fresh 30-rep sweep, with the
 cost/latency multiple reported alongside. If it still loses, the paper
 records that too.
+
+## Revision 2026-07-12 (same day): simplification to one mechanism
+
+R1/R3 as first implemented kept the ceremony (consensus annealing,
+dimensioning, review, security) and bolted a repair loop on the end --
+retrying with the same perspective that just failed. Superseded before
+its validation sweep completed by a strictly simpler design:
+
+**Perspective-rotating, test-verified attempts.** Up to 3 attempts per
+task; attempt N is led by roster persona N (engineer -> QA -> security),
+sees the acceptance tests and the previous attempt's failure output;
+the sandbox verdict ends the loop on first pass. Best-of-N diversity,
+failure-feedback repair, and early exit collapse into one loop.
+
+Removed from the benchmark hot path, with reasons on record:
+- TETD consensus annealing: outcome is constant for a fixed 3-role
+  roster; it remains the production mechanism for dynamic rosters
+  (webhook path). The benchmark measures execution value, not roster
+  selection.
+- dimension_swarm call: result was assigned to `_`.
+- review_code / run_security_scan stages: outputs were discarded.
+
+Fairness invariants unchanged: baseline untouched (single,
+description-only attempt); every attempt's latency and cost counts;
+`attempts` (1-3) is reported per unit; the fresh sweep decides, and a
+loss gets published like a win. The honest framing for any win is
+"converts compute into reliability at a reported cost multiple" -- the
+pass@cost curve, not a free lunch.

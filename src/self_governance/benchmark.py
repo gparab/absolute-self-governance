@@ -141,102 +141,84 @@ def run_baseline_mode(
 def run_asg_mode(
     task: Dict[str, Any], api_key: Optional[str], model: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Simulates the ASG run with consensus deliberation, swarm sizing, and multi-agent pipeline."""
-    from self_governance.consensus import run_consensus
-    from self_governance.dimensioning import dimension_swarm
+    """ASG mode: perspective-rotating, test-verified attempts.
+
+    Up to three attempts per task. Each attempt is led by a different
+    specialist persona, sees the acceptance tests (the tests ARE the
+    spec), and sees the previous attempt's failure output; the sandbox
+    verdict ends the loop on first pass. This merges best-of-N
+    perspective diversity, failure-feedback repair, and early exit into
+    one loop -- the mechanisms that make a multi-agent pipeline
+    measurably better than one-shot generation.
+
+    Deliberately absent from this path (all measured contributing zero
+    corrective power across two full sweeps -- see the repair-loop spec):
+    the TETD consensus annealing loop (its outcome is constant for this
+    fixed 3-role roster; it remains the production mechanism for dynamic
+    rosters on the webhook path), dimension_swarm (result was discarded),
+    and the review/security stages (outputs were discarded).
+
+    Baseline stays a single description-only attempt by definition. Every
+    attempt's full latency and token cost lands in this unit's metrics --
+    no free retries.
+    """
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     from self_governance.metrics import ASG_PIPELINE_LATENCY
+    from self_governance.agency_agents_adapter import get_persona
 
     start_time = time.time()
 
-    with ASG_PIPELINE_LATENCY.labels(phase="asg").time():
-        # Deliberate candidate selection
-        consensus_res = run_consensus(
-            initial_roster=["agent_dev", "agent_tester", "agent_security"],
-            initial_temp=1.0,
-            target_tau=8.0,
-        )
+    adapter = GeminiExecutionAdapter(
+        api_key=api_key,
+        model_default=model,
+        model_development=model,
+        model_review=model,
+        model_security=model,
+    )
 
-        # Dynamic swarm sizing using Shannon entropy sizing rules
-        req_vector = [0.8, 0.5, 0.7, 0.4]
-        matrix = [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-        _ = dimension_swarm(req_vector, matrix)
-
-        from self_governance.agency_agents_adapter import get_persona
-
-        adapter = GeminiExecutionAdapter(
-            api_key=api_key,
-            model_default=model,
-            model_development=model,
-            model_review=model,
-            model_security=model,
-        )
-
-        # Convert consensus results into Agent schemas using real personas
-        agents = []
-        for r in consensus_res.approved_roster:
-            persona = get_persona(r, adapter=adapter)
-            agents.append(
-                Agent(
-                    role=r, 
-                    prompt=persona.get("prompt", f"Guide: {r}"), 
-                    capabilities=persona.get("capabilities", [])
-                )
-            )
-
-        # Execute through hardened adapter. The QA perspective gets the
-        # actual acceptance tests -- that's what a "QA Specialist" in the
-        # roster should mean, and the tests ARE the spec. Baseline stays
-        # description-only by definition.
-        plan = {
-            "task": task["description"],
-            "acceptance_tests": task["test_code"],
-        }
-        exec_res = adapter.execute_development(agents, plan)
-        written_files = exec_res.get("written_files", [])
+    roster = ["Backend Wizard", "QA Specialist", "Security Auditor"]
 
     # Create test file on disk
     test_filepath = f"bench_test_{task['target_file']}"
     with open(test_filepath, "w", encoding="utf-8") as f:
         f.write(task["test_code"])
 
-    # Run linter and security scan checks
-    adapter.review_code(agents, exec_res)
-    adapter.run_security_scan(agents, exec_res)
+    written_files: List[str] = []
+    passed = False
+    attempts = 0
+    failure_log = ""
 
-    # Run test verification sandbox, then repair: a failed test feeds its
-    # output back for regeneration (max 2 rounds). This is the pipeline's
-    # corrective mechanism -- before it existed, the review/test stages
-    # burned cost without ever being able to change the outcome, which is
-    # why two independent sweeps measured ASG at or below baseline.
-    # Repair rounds are inside the latency/cost measurement: no free retries.
-    test_res = adapter.execute_tests(agents, {}, test_target=test_filepath)
-    passed = test_res.get("status") == "completed"
-    repair_rounds = 0
+    with ASG_PIPELINE_LATENCY.labels(phase="asg").time():
+        for role in roster:
+            attempts += 1
+            persona = get_persona(role)
+            agent = Agent(
+                role=role,
+                prompt=persona.get("prompt", f"Guide: {role}"),
+                capabilities=persona.get("capabilities", []),
+            )
+            plan = {
+                "task": task["description"],
+                "acceptance_tests": task["test_code"],
+                "lead_perspective": role,
+            }
+            if failure_log:
+                plan["previous_attempt_failed_tests"] = str(failure_log)[:4000]
+                plan["instruction"] = (
+                    "A previous attempt failed the acceptance tests above. "
+                    "Rewrite the implementation file so the tests pass."
+                )
 
-    while not passed and repair_rounds < 2:
-        repair_rounds += 1
-        failure_log = test_res.get("raw_test_output") or test_res.get("output", "")
-        repair_plan = {
-            "task": task["description"],
-            "acceptance_tests": task["test_code"],
-            "previous_attempt_failed_tests": str(failure_log)[:4000],
-            "instruction": (
-                "The previous implementation failed the acceptance tests above. "
-                "Rewrite the implementation file so the tests pass."
-            ),
-        }
-        repair_res = adapter.execute_development(agents, repair_plan)
-        for f_path in repair_res.get("written_files", []):
-            if f_path not in written_files:
-                written_files.append(f_path)
-        test_res = adapter.execute_tests(agents, {}, test_target=test_filepath)
-        passed = test_res.get("status") == "completed"
+            exec_res = adapter.execute_development([agent], plan)
+            for f_path in exec_res.get("written_files", []):
+                if f_path not in written_files:
+                    written_files.append(f_path)
+
+            test_res = adapter.execute_tests([agent], {}, test_target=test_filepath)
+            passed = test_res.get("status") == "completed"
+            if passed:
+                break
+            failure_log = test_res.get("raw_test_output") or test_res.get("output", "")
 
     # Cleanup files
     for f_path in written_files:
@@ -256,7 +238,7 @@ def run_asg_mode(
 
     return {
         "passed": passed,
-        "repair_rounds": repair_rounds,
+        "attempts": attempts,
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
     }

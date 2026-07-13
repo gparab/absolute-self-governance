@@ -81,17 +81,20 @@ def _mock_asg_stages(monkeypatch, dev_fn, test_fn):
     )
 
 
-def test_asg_repair_loop_feeds_failure_back_and_stops_on_pass(monkeypatch, tmp_path):
-    """A failed test run must trigger a regeneration that carries the
-    failure output and the acceptance tests, and the loop must stop as
-    soon as a round passes -- this is the pipeline's corrective
-    mechanism (spec 2026-07-12-asg-repair-loop-design.md R1/R3)."""
+def test_asg_rotates_perspectives_and_stops_on_first_pass(monkeypatch, tmp_path):
+    """Each attempt must be led by a DIFFERENT specialist persona, carry
+    the acceptance tests, feed the prior failure output forward, and the
+    loop must stop on the first sandbox pass -- perspective diversity +
+    repair feedback + early exit as one mechanism."""
     monkeypatch.chdir(tmp_path)
     calls = {"dev": 0, "test": 0}
+    leads = []
 
     def fake_dev(self, agents, plan):
         calls["dev"] += 1
-        assert "acceptance_tests" in plan, "QA perspective must see the tests"
+        assert "acceptance_tests" in plan, "every attempt must see the tests"
+        leads.append(plan["lead_perspective"])
+        assert len(agents) == 1 and agents[0].role == plan["lead_perspective"]
         if calls["dev"] > 1:
             assert "previous_attempt_failed_tests" in plan
             assert "1 failed" in plan["previous_attempt_failed_tests"]
@@ -107,14 +110,16 @@ def test_asg_repair_loop_feeds_failure_back_and_stops_on_pass(monkeypatch, tmp_p
     res = run_asg_mode(_TINY_TASK, api_key=None)
 
     assert res["passed"] is True
-    assert res["repair_rounds"] == 1
-    assert calls["dev"] == 2
-    assert calls["test"] == 2
+    assert res["attempts"] == 2
+    assert calls["dev"] == 2 and calls["test"] == 2
+    assert leads == ["Backend Wizard", "QA Specialist"], (
+        "the second attempt must rotate to a different persona"
+    )
 
 
-def test_asg_repair_loop_caps_at_two_rounds(monkeypatch, tmp_path):
-    """A persistently failing unit must stop after 2 repair rounds --
-    honest failure, not an infinite retry burn."""
+def test_asg_caps_at_three_attempts(monkeypatch, tmp_path):
+    """A persistently failing unit stops after the roster is exhausted
+    (3 attempts) -- honest failure, not an infinite retry burn."""
     monkeypatch.chdir(tmp_path)
     calls = {"dev": 0, "test": 0}
 
@@ -130,8 +135,8 @@ def test_asg_repair_loop_caps_at_two_rounds(monkeypatch, tmp_path):
     res = run_asg_mode(_TINY_TASK, api_key=None)
 
     assert res["passed"] is False
-    assert res["repair_rounds"] == 2
-    assert calls["dev"] == 3  # initial + 2 repairs
+    assert res["attempts"] == 3
+    assert calls["dev"] == 3
     assert calls["test"] == 3
 
 
