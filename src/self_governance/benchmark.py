@@ -302,6 +302,7 @@ def run_benchmark_parallel(
     on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
     resume_path: Optional[str] = None,
     model: Optional[str] = None,
+    task_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Run the benchmark across multiple repetitions, concurrently, each
     repetition isolated in its own process and working directory.
@@ -336,9 +337,19 @@ def run_benchmark_parallel(
     started its checkpoint file -- mixing models within one checkpoint
     invalidates the baseline-vs-ASG comparison; use a separate
     resume_path per model.
+
+    task_ids, if given, restricts the sweep to that subset of task ids
+    instead of the full suite -- e.g. concentrating reps on the tasks
+    that actually show variance between modes, since tasks already at
+    30/30 in both modes add spend without adding statistical power.
     """
     workers = max(1, min(workers, 16))
     tasks = load_benchmark_tasks()
+    if task_ids is not None:
+        tasks = [t for t in tasks if t["id"] in task_ids]
+        missing = set(task_ids) - {t["id"] for t in tasks}
+        if missing:
+            raise ValueError(f"Unknown task_ids: {sorted(missing)}")
 
     done_keys = set()
     results: Dict[str, Any] = {

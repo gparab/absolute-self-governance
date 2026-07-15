@@ -19,6 +19,40 @@ _TINY_TASK = {
 }
 
 
+_TASK_A = {**_TINY_TASK, "id": "task_a", "name": "A"}
+_TASK_B = {**_TINY_TASK, "id": "task_b", "name": "B"}
+
+
+def test_run_benchmark_parallel_task_ids_restricts_to_subset(monkeypatch):
+    """--tasks / task_ids must run only the requested subset -- this is
+    what lets a rep-heavy sweep concentrate spend on the tasks that show
+    variance instead of re-running ceiling-bound tasks for no
+    statistical benefit (see the post-validation improvement plan)."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks",
+        lambda: [_TASK_A, _TASK_B],
+    )
+
+    results = run_benchmark_parallel(
+        api_key=None, reps=1, workers=2, task_ids=["task_a"]
+    )
+
+    assert set(results.keys()) == {"task_a"}
+
+
+def test_run_benchmark_parallel_unknown_task_id_raises(monkeypatch):
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks",
+        lambda: [_TASK_A],
+    )
+    try:
+        run_benchmark_parallel(api_key=None, reps=1, task_ids=["not_a_real_task"])
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "not_a_real_task" in str(e)
+
+
 def test_load_benchmark_tasks():
     tasks = load_benchmark_tasks()
     assert len(tasks) == 6

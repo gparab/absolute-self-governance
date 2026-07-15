@@ -214,6 +214,13 @@ def parse_args():
              "OrchestratorConfig configures). Baseline and ASG modes "
              "always run against the same model within one sweep.",
     )
+    parser_bench.add_argument(
+        "--tasks", type=str, default=None,
+        help="Comma-separated task ids to restrict the sweep to (default: "
+             "all tasks), e.g. --tasks task_lru_cache,task_retry_backoff. "
+             "Useful for concentrating reps on tasks that show variance "
+             "instead of spending on tasks already at ceiling.",
+    )
 
     return parser.parse_args()
 
@@ -756,10 +763,12 @@ def handle_benchmark(args):
                 f"rep {outcome['rep']+1}/{args.reps}: {status}"
             )
 
+        task_ids = args.tasks.split(",") if args.tasks else None
         print(
             f"Running {args.reps} reps/task/mode with {args.workers} "
             f"concurrent workers (each in its own isolated tempdir)"
-            f"{f', model={args.model}' if args.model else ''}...\n"
+            f"{f', model={args.model}' if args.model else ''}"
+            f"{f', tasks={task_ids}' if task_ids else ''}...\n"
         )
         results = run_benchmark_parallel(
             reps=args.reps,
@@ -767,6 +776,7 @@ def handle_benchmark(args):
             on_result=_progress,
             resume_path=args.out,
             model=args.model,
+            task_ids=task_ids,
         )
 
         print(f"\n| {'Task':<24} | {'Mode':<9} | {'Pass':<8} | {'MeanLat':<9} | {'MeanCost':<10} |")
