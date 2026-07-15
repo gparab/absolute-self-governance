@@ -18,7 +18,7 @@ self-governance demo         # no API key, no cost, no setup — see it work in 
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
 
-📄 **[Read the paper](paper.pdf)** — including a live benchmark (§4.7) that didn't confirm our own hypothesis about multi-agent overhead paying off on harder tasks. We scaled it up, it didn't hold, and we reported the real number instead of the flattering one. See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) to reproduce it (model is a runtime `--model` flag, not hardcoded).
+📄 **[Read the paper](paper.pdf)** — a live benchmark we've run three times, honestly, in public. First pass (§4.7): our own hypothesis about multi-agent overhead paying off on harder tasks didn't hold at scale, so we reported the real number instead of the flattering one. Second pass (§4.7.1), a different model, replicated the same shortfall and diagnosed why: the pipeline's review/test stages discarded their own output, so nothing fed back into the result. Third pass (§4.7.2), after fixing that — perspective-rotating attempts with real failure feedback and an early exit — ASG passed 180/180 vs. baseline's 176/180 at parity latency, though the confidence intervals still overlap and we say so. See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) to reproduce any of it (model is a runtime `--model` flag, not hardcoded).
 
 ---
 
