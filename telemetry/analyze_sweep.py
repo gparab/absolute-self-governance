@@ -75,6 +75,29 @@ def analyze(path: str) -> None:
     if attempts:
         print(f"ASG attempts distribution: {dict(sorted(attempts.items()))}")
 
+    # Failure taxonomy: infrastructure failures masquerading as test
+    # failures have invalidated whole sweeps in this repo's history.
+    # sandbox_error / no_files_written dominating the failures means the
+    # dataset measured a broken environment, not code quality.
+    classes = Counter(
+        r["result"].get("failure_class")
+        for r in rows
+        if not r["result"].get("passed")
+        and r["result"].get("failure_class") is not None
+    )
+    if classes:
+        print(f"Failure classes: {dict(sorted(classes.items()))}")
+        infra = classes.get("sandbox_error", 0) + classes.get("no_files_written", 0)
+        total_failures = sum(classes.values())
+        if total_failures and infra / total_failures > 0.5:
+            print(
+                "\n*** WARNING: over half of all failures are infrastructure-"
+                "class (sandbox_error / no_files_written), not genuine test "
+                "failures. This dataset likely measured a broken environment "
+                "-- treat every number above as suspect until the "
+                "infrastructure cause is diagnosed. ***"
+            )
+
     if "baseline" in per_mode and "asg" in per_mode:
         bp, bn, bl = per_mode["baseline"]
         ap, an, al = per_mode["asg"]

@@ -174,6 +174,97 @@ def test_asg_caps_at_three_attempts(monkeypatch, tmp_path):
     assert calls["test"] == 3
 
 
+def test_failure_classification_distinguishes_infra_from_quality(monkeypatch, tmp_path):
+    """The failure taxonomy must separate 'the environment is broken'
+    from 'the generated code is bad' -- three sweeps in this repo's
+    history were invalidated by infra failures recorded as ordinary
+    FAILs (revoked key, Docker down, broken shim), each caught only by
+    a human noticing impossible aggregate numbers."""
+    from self_governance.benchmark import _classify_failure
+
+    # Passed -> no class
+    assert _classify_failure(True, ["f.py"], {"raw_test_output": "1 passed"}) is None
+    # Docker daemon down -> sandbox_error, regardless of written files
+    assert (
+        _classify_failure(
+            False, ["f.py"], {"output": "Cannot connect to the Docker daemon at unix://..."}
+        )
+        == "sandbox_error"
+    )
+    assert (
+        _classify_failure(
+            False, [], {"output": "Containerized test execution failed: X. Host execution fallback is disabled for security."}
+        )
+        == "sandbox_error"
+    )
+    # Generation produced nothing runnable (API failure / format failure)
+    assert _classify_failure(False, [], {"raw_test_output": "collected 0 items"}) == "no_files_written"
+    # Real quality failure: code existed, ran, failed
+    assert (
+        _classify_failure(False, ["f.py"], {"raw_test_output": "1 failed: test_x"})
+        == "tests_failed"
+    )
+
+
+def test_mode_results_carry_failure_class(monkeypatch, tmp_path):
+    """Both mode functions must record failure_class so the analyzer can
+    flag infrastructure-contaminated datasets."""
+    monkeypatch.chdir(tmp_path)
+
+    def fake_dev(self, agents, plan):
+        return {"status": "completed", "written_files": ["out.py"]}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        return {"status": "failed", "raw_test_output": "1 failed"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+    assert res["failure_class"] == "tests_failed"
+
+    from self_governance.benchmark import run_baseline_mode
+
+    res_b = run_baseline_mode(_TINY_TASK, api_key=None)
+    assert res_b["failure_class"] == "tests_failed"
+
+
+def _fake_sandbox_error_unit(task, mode, rep, api_key, model=None):
+    # Module-level: ProcessPoolExecutor's spawn start method requires
+    # picklable (top-level) callables.
+    return {
+        "task_id": task["id"],
+        "mode": mode,
+        "rep": rep,
+        "result": {
+            "passed": False,
+            "failure_class": "sandbox_error",
+            "latency_sec": 0.1,
+            "estimated_cost_usd": 0.0,
+        },
+    }
+
+
+def test_sweep_aborts_on_consecutive_sandbox_errors(monkeypatch, tmp_path):
+    """A broken sandbox can never produce valid data -- the sweep must
+    trip its circuit breaker on consecutive sandbox_error units instead
+    of burning the whole quota on invalid results (the Docker-down
+    incident produced 96 invalid units before a human caught it)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+    )
+    monkeypatch.setattr(
+        "self_governance.benchmark._run_one_isolated", _fake_sandbox_error_unit
+    )
+
+    seen = []
+    run_benchmark_parallel(api_key=None, reps=50, workers=1, on_result=seen.append)
+
+    # breaker threshold is workers*2 = 2; the sweep must stop early,
+    # not run all 100 doomed units
+    assert len(seen) < 100, f"sweep did not abort on sandbox errors, ran {len(seen)} units"
+
+
 def test_execute_development_reformat_retry_recovers_unparseable_output(
     monkeypatch, tmp_path
 ):

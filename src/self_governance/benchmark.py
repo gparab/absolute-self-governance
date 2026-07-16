@@ -79,6 +79,42 @@ def run_benchmark(
     return results
 
 
+# Failure taxonomy (after Roitman 2026, Table 25.1): a benchmark unit that
+# fails is not one kind of event. Three sweeps in this repo's history were
+# invalidated by infrastructure failures (revoked API key, Docker daemon
+# down, a broken harness shim) that were indistinguishable from genuine
+# test failures in the recorded data -- each burned a full day's API quota
+# before being caught by a human noticing implausible aggregate numbers.
+# Classifying failures at the source makes that class of invalid dataset
+# self-announcing instead of silent.
+_SANDBOX_ERROR_MARKERS = (
+    "Cannot connect to the Docker daemon",
+    "Containerized test execution failed",
+    "Unable to find image",
+    "docker: command not found",
+)
+
+
+def _classify_failure(
+    passed: bool, written_files: List[str], test_res: Dict[str, Any]
+) -> Optional[str]:
+    """Classify a failed unit: 'sandbox_error' (test environment broken --
+    result says nothing about code quality), 'no_files_written' (generation
+    produced nothing runnable: API failure or unrecoverable format failure),
+    or 'tests_failed' (real quality signal: code ran and failed the tests).
+    None when the unit passed."""
+    if passed:
+        return None
+    output = str(
+        test_res.get("raw_test_output") or test_res.get("output") or ""
+    )
+    if any(marker in output for marker in _SANDBOX_ERROR_MARKERS):
+        return "sandbox_error"
+    if not written_files:
+        return "no_files_written"
+    return "tests_failed"
+
+
 def run_baseline_mode(
     task: Dict[str, Any], api_key: Optional[str], model: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -133,6 +169,7 @@ def run_baseline_mode(
 
     return {
         "passed": passed,
+        "failure_class": _classify_failure(passed, written_files, test_res),
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
     }
@@ -239,6 +276,7 @@ def run_asg_mode(
     return {
         "passed": passed,
         "attempts": attempts,
+        "failure_class": _classify_failure(passed, written_files, test_res),
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
     }
@@ -391,9 +429,23 @@ def run_benchmark_parallel(
                 # burning wall-clock on retries that will only produce more
                 # of the same error, and let the next scheduled attempt
                 # (after quota resets) pick up the remaining units instead.
-                if "error" in outcome["result"]:
+                # sandbox_error units count too: a broken test environment
+                # can never produce valid data, only quota-burning noise
+                # (a Docker-down incident once invalidated 96 units before
+                # a human noticed the impossible aggregate numbers).
+                infra_failure = (
+                    "error" in outcome["result"]
+                    or outcome["result"].get("failure_class") == "sandbox_error"
+                )
+                if infra_failure:
                     consecutive_errors += 1
                     if consecutive_errors >= workers * 2:
+                        logger.error(
+                            "Aborting sweep: %d consecutive infrastructure "
+                            "failures -- environment is broken, further units "
+                            "would be invalid.",
+                            consecutive_errors,
+                        )
                         for f in futures:
                             f.cancel()
                         break
