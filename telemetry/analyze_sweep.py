@@ -88,7 +88,11 @@ def analyze(path: str) -> None:
     if classes:
         print(f"Failure classes: {dict(sorted(classes.items()))}")
         infra = classes.get("sandbox_error", 0) + classes.get("no_files_written", 0)
-        total_failures = sum(classes.values())
+        # Denominator is ALL failures, not just classified ones -- rows from
+        # checkpoints predating the taxonomy carry no failure_class, and
+        # computing the ratio over classified-only rows falsely flags mixed
+        # old/new datasets as contaminated.
+        total_failures = sum(1 for r in rows if not r["result"].get("passed"))
         if total_failures and infra / total_failures > 0.5:
             print(
                 "\n*** WARNING: over half of all failures are infrastructure-"
