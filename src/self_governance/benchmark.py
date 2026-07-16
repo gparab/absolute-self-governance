@@ -297,25 +297,46 @@ def _run_one_isolated(
     directory. Without this, concurrent reps of the same task would race
     on the same target_file / bench_test_*.py filenames.
     """
+    from self_governance.tracing import tracer
+
     workdir = tempfile.mkdtemp(prefix="asg_bench_")
     prev_cwd = os.getcwd()
-    try:
-        os.chdir(workdir)
-        mode_fn = run_baseline_mode if mode == "baseline" else run_asg_mode
+    # One span per (task, mode, rep) unit, carrying the fields an operator
+    # actually needs to triage a sweep: which unit, how it failed, what it
+    # cost. Individual API-call spans already exist inside the adapter but
+    # give no unit-level view; this is what makes a sweep's OTel trace
+    # actually traceable end-to-end instead of a wall of undifferentiated
+    # gemini_api_call spans.
+    with tracer.start_as_current_span("benchmark_unit") as span:
+        span.set_attribute("task_id", task["id"])
+        span.set_attribute("mode", mode)
+        span.set_attribute("rep", rep)
         try:
-            result = mode_fn(task, api_key, model=model)
-        except Exception as e:
-            result = {
-                "passed": False,
-                "latency_sec": 0.0,
-                "estimated_cost_usd": 0.0,
-                "error": str(e),
-            }
-    finally:
-        os.chdir(prev_cwd)
-        import shutil
+            os.chdir(workdir)
+            mode_fn = run_baseline_mode if mode == "baseline" else run_asg_mode
+            try:
+                result = mode_fn(task, api_key, model=model)
+            except Exception as e:
+                result = {
+                    "passed": False,
+                    "latency_sec": 0.0,
+                    "estimated_cost_usd": 0.0,
+                    "error": str(e),
+                }
+        finally:
+            os.chdir(prev_cwd)
+            import shutil
 
-        shutil.rmtree(workdir, ignore_errors=True)
+            shutil.rmtree(workdir, ignore_errors=True)
+
+        span.set_attribute("passed", bool(result.get("passed")))
+        span.set_attribute("failure_class", result.get("failure_class") or "")
+        span.set_attribute("attempts", result.get("attempts") or 1)
+        span.set_attribute("latency_sec", result.get("latency_sec", 0.0))
+        span.set_attribute("estimated_cost_usd", result.get("estimated_cost_usd", 0.0))
+        if "error" in result:
+            span.set_attribute("error", result["error"])
+
     return {"task_id": task["id"], "mode": mode, "rep": rep, "result": result}
 
 

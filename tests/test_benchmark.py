@@ -427,6 +427,52 @@ def test_run_one_isolated_captures_worker_exception(monkeypatch):
     assert outcome["result"]["error"] == "simulated worker failure"
 
 
+def test_run_one_isolated_emits_unit_level_span(monkeypatch):
+    """Each unit must carry its own OTel span with task/mode/rep and the
+    outcome fields an operator needs to triage a sweep -- otherwise a
+    sweep's trace is just an undifferentiated wall of gemini_api_call
+    spans with no unit-level view (book-refactor spec Phase B3)."""
+    import self_governance.benchmark as bm
+
+    captured_attrs = {}
+
+    class FakeSpan:
+        def set_attribute(self, key, value):
+            captured_attrs[key] = value
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeTracer:
+        def start_as_current_span(self, name):
+            captured_attrs["_span_name"] = name
+            return FakeSpan()
+
+    monkeypatch.setattr("self_governance.tracing.tracer", FakeTracer())
+    monkeypatch.setattr(
+        bm,
+        "run_baseline_mode",
+        lambda task, api_key, model=None: {
+            "passed": True,
+            "latency_sec": 1.5,
+            "estimated_cost_usd": 0.0001,
+        },
+    )
+
+    bm._run_one_isolated(_TINY_TASK, "baseline", 3, None)
+
+    assert captured_attrs["_span_name"] == "benchmark_unit"
+    assert captured_attrs["task_id"] == "task_tiny"
+    assert captured_attrs["mode"] == "baseline"
+    assert captured_attrs["rep"] == 3
+    assert captured_attrs["passed"] is True
+    assert captured_attrs["latency_sec"] == 1.5
+    assert captured_attrs["estimated_cost_usd"] == 0.0001
+
+
 def test_cli_benchmark_parallel(monkeypatch, capsys):
     """The --reps > 1 CLI path is a genuinely different code path from the
     default (routes to run_benchmark_parallel, not run_benchmark) and needs
