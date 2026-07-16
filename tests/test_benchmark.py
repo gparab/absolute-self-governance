@@ -550,3 +550,38 @@ def test_run_benchmark_parallel_workers_clamped():
         bm.run_benchmark_parallel(api_key=None, reps=1, workers=999)
 
     assert called["max_workers"] == 16
+
+
+def test_golden_regression_checker_detects_regressions(tmp_path):
+    """The golden-baseline checker must pass the real phase-G data
+    against its own thresholds and fail a synthetically regressed
+    dataset -- this is the harness-level golden-trajectory test
+    (book-refactor spec Phase B1/B2)."""
+    import sys as _sys
+
+    _sys.path.insert(0, "telemetry")
+    from check_regression import check
+
+    clean = check(
+        "telemetry/phase_g_lru_retry_threadsafe_100rep.jsonl",
+        "telemetry/golden/phase_g_baseline.json",
+    )
+    assert clean == [], f"real data regressed against its own goldens: {clean}"
+
+    bad = tmp_path / "bad.jsonl"
+    rows = [
+        {
+            "task_id": "task_lru_cache",
+            "mode": "asg",
+            "rep": i,
+            "result": {
+                "passed": i < 10,
+                "latency_sec": 200.0,
+                "estimated_cost_usd": 0.005,
+            },
+        }
+        for i in range(20)
+    ]
+    bad.write_text("\n".join(json.dumps(r) for r in rows))
+    found = check(str(bad), "telemetry/golden/phase_g_baseline.json")
+    assert len(found) == 3, f"expected pass/latency/cost regressions, got: {found}"

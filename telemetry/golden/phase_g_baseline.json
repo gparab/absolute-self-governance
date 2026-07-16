@@ -1,0 +1,36 @@
+{
+ "_source": "telemetry/phase_g_lru_retry_threadsafe_100rep.jsonl",
+ "_derivation": "pass floor = observed - 5pp; latency ceiling = observed p95 * 1.5; cost ceiling = observed mean * 2",
+ "cells": {
+  "task_lru_cache/asg": {
+   "pass_rate_floor": 0.95,
+   "latency_p95_ceiling_sec": 76.5,
+   "mean_cost_ceiling_usd": 0.000888
+  },
+  "task_lru_cache/baseline": {
+   "pass_rate_floor": 0.9,
+   "latency_p95_ceiling_sec": 116.6,
+   "mean_cost_ceiling_usd": 0.000845
+  },
+  "task_retry_backoff/asg": {
+   "pass_rate_floor": 0.95,
+   "latency_p95_ceiling_sec": 83.6,
+   "mean_cost_ceiling_usd": 0.000882
+  },
+  "task_retry_backoff/baseline": {
+   "pass_rate_floor": 0.93,
+   "latency_p95_ceiling_sec": 102.5,
+   "mean_cost_ceiling_usd": 0.000762
+  },
+  "task_thread_safe_cache/asg": {
+   "pass_rate_floor": 0.95,
+   "latency_p95_ceiling_sec": 94.6,
+   "mean_cost_ceiling_usd": 0.000517
+  },
+  "task_thread_safe_cache/baseline": {
+   "pass_rate_floor": 0.93,
+   "latency_p95_ceiling_sec": 85.0,
+   "mean_cost_ceiling_usd": 0.000459
+  }
+ }
+}

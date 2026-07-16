@@ -14,7 +14,12 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 logger = logging.getLogger("self_governance.tracing")
 
 # Initialize OpenTelemetry Tracer.
-# OTEL_EXPORTER_OTLP_ENDPOINT set -> ship spans there; otherwise console.
+# OTEL_EXPORTER_OTLP_ENDPOINT set -> ship spans there.
+# ASG_CONSOLE_SPANS=1 -> dump raw span JSON to stdout (debugging only).
+# Neither set -> spans are recorded but not exported. Raw span JSON was
+# previously the default, which buried real errors in every CLI run and
+# benchmark log under kilobytes of span noise -- a live API-auth failure
+# once went undiagnosed inside exactly that spam.
 provider = TracerProvider()
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer("self_governance")
@@ -28,7 +33,7 @@ if os.getenv("TESTING") != "True":
                 )
 
                 provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(timeout=2)))
-            else:
+            elif os.getenv("ASG_CONSOLE_SPANS") == "1":
                 provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
         except Exception as e:
             logger.warning("Could not initialize OTel exporter: %s", e)
