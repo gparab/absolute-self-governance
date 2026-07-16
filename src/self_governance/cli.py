@@ -221,6 +221,13 @@ def parse_args():
              "Useful for concentrating reps on tasks that show variance "
              "instead of spending on tasks already at ceiling.",
     )
+    parser_bench.add_argument(
+        "--task-source", type=str, default=None,
+        help="Path to an alternate tasks JSON file (default: the "
+             "packaged benchmark_tasks.json), e.g. "
+             "src/self_governance/benchmark_tasks_heldout.json to run "
+             "the held-out overfitting-control tier.",
+    )
 
     return parser.parse_args()
 
@@ -777,6 +784,7 @@ def handle_benchmark(args):
             resume_path=args.out,
             model=args.model,
             task_ids=task_ids,
+            task_source=args.task_source,
         )
 
         print(f"\n| {'Task':<24} | {'Mode':<9} | {'Pass':<8} | {'MeanLat':<9} | {'MeanCost':<10} |")

@@ -31,7 +31,7 @@ def test_run_benchmark_parallel_task_ids_restricts_to_subset(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
         "self_governance.benchmark.load_benchmark_tasks",
-        lambda: [_TASK_A, _TASK_B],
+        lambda source=None: [_TASK_A, _TASK_B],
     )
 
     results = run_benchmark_parallel(
@@ -44,7 +44,7 @@ def test_run_benchmark_parallel_task_ids_restricts_to_subset(monkeypatch):
 def test_run_benchmark_parallel_unknown_task_id_raises(monkeypatch):
     monkeypatch.setattr(
         "self_governance.benchmark.load_benchmark_tasks",
-        lambda: [_TASK_A],
+        lambda source=None: [_TASK_A],
     )
     try:
         run_benchmark_parallel(api_key=None, reps=1, task_ids=["not_a_real_task"])
@@ -251,7 +251,7 @@ def test_sweep_aborts_on_consecutive_sandbox_errors(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
-        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
     )
     monkeypatch.setattr(
         "self_governance.benchmark._run_one_isolated", _fake_sandbox_error_unit
@@ -386,7 +386,7 @@ def test_run_benchmark_parallel_dispatches_every_unit_exactly_once(monkeypatch):
     each exactly once, via a real ProcessPoolExecutor."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
-        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
     )
 
     seen = []
@@ -481,7 +481,7 @@ def test_cli_benchmark_parallel(monkeypatch, capsys):
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
-        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
     )
 
     test_args = ["self-governance", "benchmark", "--reps", "2", "--workers", "2"]
@@ -500,7 +500,7 @@ def test_run_benchmark_parallel_resume_skips_completed_units(tmp_path, monkeypat
     re-running everything from scratch."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
-        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
     )
     checkpoint = tmp_path / "checkpoint.jsonl"
 
@@ -551,7 +551,7 @@ def test_run_benchmark_parallel_resume_retries_error_outcomes(tmp_path, monkeypa
     )
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr(
-        "self_governance.benchmark.load_benchmark_tasks", lambda: [_TINY_TASK]
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
     )
 
     seen = []
@@ -591,7 +591,7 @@ def test_run_benchmark_parallel_workers_clamped():
     import unittest.mock as mock
 
     with mock.patch.object(bm, "ProcessPoolExecutor", FakeExecutor), \
-         mock.patch.object(bm, "load_benchmark_tasks", lambda: [_TINY_TASK]), \
+         mock.patch.object(bm, "load_benchmark_tasks", lambda source=None: [_TINY_TASK]), \
          mock.patch.object(bm, "as_completed", lambda futures: futures):
         bm.run_benchmark_parallel(api_key=None, reps=1, workers=999)
 
@@ -631,3 +631,42 @@ def test_golden_regression_checker_detects_regressions(tmp_path):
     bad.write_text("\n".join(json.dumps(r) for r in rows))
     found = check(str(bad), "telemetry/golden/phase_g_baseline.json")
     assert len(found) == 3, f"expected pass/latency/cost regressions, got: {found}"
+
+
+def test_load_benchmark_tasks_alternate_source():
+    """load_benchmark_tasks(source=...) must load the held-out tier
+    (overfitting control, post-validation improvement plan Phase 3.2)
+    instead of the packaged suite, and every task must be schema-valid."""
+    tasks = load_benchmark_tasks(
+        source="src/self_governance/benchmark_tasks_heldout.json"
+    )
+    assert len(tasks) == 4
+    ids = {t["id"] for t in tasks}
+    assert ids == {
+        "task_rate_limiter",
+        "task_priority_queue",
+        "task_debounce",
+        "task_graph_cycle",
+    }
+    for t in tasks:
+        assert {"id", "name", "description", "test_code", "target_file"} <= set(t)
+    # Disjoint from the original suite -- a held-out tier that shares
+    # task IDs with the training suite isn't held out.
+    assert ids.isdisjoint({t["id"] for t in load_benchmark_tasks()})
+
+
+def test_run_benchmark_parallel_task_source_param(monkeypatch, tmp_path):
+    """task_source must reach load_benchmark_tasks, not just exist as
+    a CLI flag with no effect."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    captured = {}
+
+    def fake_load(source=None):
+        captured["source"] = source
+        return [_TASK_A]
+
+    monkeypatch.setattr("self_governance.benchmark.load_benchmark_tasks", fake_load)
+    run_benchmark_parallel(
+        api_key=None, reps=1, workers=1, task_source="some/heldout.json"
+    )
+    assert captured["source"] == "some/heldout.json"

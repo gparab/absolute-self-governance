@@ -10,9 +10,19 @@ from self_governance.models import Agent
 logger = logging.getLogger("self_governance.benchmark")
 
 
-def load_benchmark_tasks() -> List[Dict[str, Any]]:
-    """Loads benchmark challenges from the JSON config."""
-    tasks_path = os.path.join(os.path.dirname(__file__), "benchmark_tasks.json")
+def load_benchmark_tasks(source: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Loads benchmark challenges from a JSON config.
+
+    source, if given, is a path to an alternate tasks file -- e.g.
+    benchmark_tasks_heldout.json, a task set designed without visibility
+    into the ASG mechanism's specifics, used as the control against
+    overfitting to the original six tasks the mechanism was iterated
+    against (see the post-validation improvement plan, Phase 3.2).
+    Defaults to the packaged benchmark_tasks.json.
+    """
+    tasks_path = source or os.path.join(
+        os.path.dirname(__file__), "benchmark_tasks.json"
+    )
     with open(tasks_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -362,6 +372,7 @@ def run_benchmark_parallel(
     resume_path: Optional[str] = None,
     model: Optional[str] = None,
     task_ids: Optional[List[str]] = None,
+    task_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the benchmark across multiple repetitions, concurrently, each
     repetition isolated in its own process and working directory.
@@ -401,9 +412,14 @@ def run_benchmark_parallel(
     instead of the full suite -- e.g. concentrating reps on the tasks
     that actually show variance between modes, since tasks already at
     30/30 in both modes add spend without adding statistical power.
+
+    task_source, if given, is a path to an alternate tasks JSON file
+    (e.g. benchmark_tasks_heldout.json) instead of the packaged suite.
+    Use a resume_path specific to that source -- a checkpoint mixing
+    task IDs from two different source files is not a coherent sweep.
     """
     workers = max(1, min(workers, 16))
-    tasks = load_benchmark_tasks()
+    tasks = load_benchmark_tasks(task_source)
     if task_ids is not None:
         tasks = [t for t in tasks if t["id"] in task_ids]
         missing = set(task_ids) - {t["id"] for t in tasks}
