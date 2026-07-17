@@ -54,6 +54,7 @@ omit = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 markers = [
     "e2e: End-to-end browser and server integration tests"
 ]
