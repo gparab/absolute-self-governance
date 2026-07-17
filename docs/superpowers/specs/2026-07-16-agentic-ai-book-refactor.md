@@ -81,12 +81,22 @@ constraint/insight node; the existing `add_session_node` schema already
 supports constraints. Benchmark path stays untouched (memoization
 hazard recorded in the improvement plan stands). Cost: M.
 
-**C2. Recorded, not built:** Mem0-style automatic fact extraction and
-A-MEM dynamic linking (§17.11) — production-scale memory features that
-need C1 shipping first plus a production evaluation harness before any
-claims. Sleep-time compute (§17.11.3) — offline consolidation between
-webhook events; architecturally natural for the nudger's idle loop, but
-premature before C1.
+**C2a. Production evaluation harness — built.** `telemetry/eval_memory_recall.py`
+(+ `tests/test_eval_memory_recall.py`) seeds a synthetic multi-tenant,
+multi-session scenario into an isolated DB and checks the properties C1's
+read/write loop depends on: recall (a written reflection is retrievable by
+a later session on the same feature), tenant isolation (no cross-tenant
+leakage), and feature isolation (an unbuilt feature returns the documented
+default, not noise). 5/5 checks green as of this writing. This unblocks,
+but does not itself implement, C2b.
+
+**C2b. Recorded, not built:** Mem0-style automatic fact extraction and
+A-MEM dynamic linking (§17.11) — production-scale memory features layered
+on top of C1's explicit constraint list, now that C2a exists to measure
+whether they improve recall/precision over the current baseline rather than
+just asserting it. Sleep-time compute (§17.11.3) — offline consolidation
+between webhook events; architecturally natural for the nudger's idle loop,
+but still premature until C2b has a concrete design.
 
 ## Adoption rationale (the "organic developer adoption" thread)
 
