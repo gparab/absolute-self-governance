@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from self_governance.db import Base, engine, SessionLocal, GraphNode, GraphEdge
 from self_governance.graph_memory import GraphMemoryEngine
@@ -36,3 +38,30 @@ def test_graph_memory_records_session_and_queries():
     # Assert query
     assert "GraphRAG Context:" in context
     assert "Do not use globals" in context
+
+
+def test_query_context_returns_default_message_when_no_match():
+    engine = GraphMemoryEngine(tenant_id="test_tenant_graph_empty")
+
+    context = engine.query_context(["Feature_never_built"])
+
+    assert context == "No specific past graph context found for these features."
+
+
+def test_add_session_node_rolls_back_and_reraises_on_db_error():
+    engine = GraphMemoryEngine(tenant_id="test_tenant_graph_error")
+
+    with patch("sqlalchemy.orm.Session.commit", side_effect=RuntimeError("db exploded")):
+        with pytest.raises(RuntimeError, match="db exploded"):
+            engine.add_session_node(
+                session_id=1,
+                roster=["Backend Wizard"],
+                features=["Feature_0"],
+                constraints=[],
+            )
+
+    # No orphaned rows survive the rolled-back transaction.
+    db = SessionLocal()
+    nodes = db.query(GraphNode).filter_by(tenant_id="test_tenant_graph_error").all()
+    db.close()
+    assert nodes == []
