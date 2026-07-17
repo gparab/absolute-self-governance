@@ -37,7 +37,7 @@ self_governance.db
 .learning_state.json
 task.md
 paper_parity_analysis.md
-prompt_draft.md
+prompt_draft*.md
 roster_rotation_log.md
 TELEMETRY_LOG.md
 benchmark_results.md
@@ -45,3 +45,10 @@ paper_gen_code/
 safe_zone/
 unsafe.txt
 *.egg-info/
+
+# ContinuousNudger runtime state (handoff bus, drafts, per-tenant output, event logs)
+.planning/
+handoff.md
+pipeline_artifact.jsonl
+monitoring_events.ndjson
+tenants/
