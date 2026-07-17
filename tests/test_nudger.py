@@ -103,16 +103,22 @@ def test_nudger_transient_failure_lockout(tmp_path):
     # Resolve the write block
     os.rmdir(str(log_file))
 
-    # Wait to see if succession is retried (retries now use exponential backoff)
+    # Wait to see if succession is retried (retries now use exponential backoff).
+    # roster_rotation_log.md is created via open(path, "a") and written in a
+    # separate step, so is_file() can go True slightly before the content
+    # lands -- poll for the actual content, not just file existence.
     deadline = time.time() + 5.0
-    while time.time() < deadline and not log_file.is_file():
-        time.sleep(0.1)
+    log_content = ""
+    while time.time() < deadline and "Approved Roster: [agent_A]" not in log_content:
+        if log_file.is_file():
+            with open(log_file, "r", encoding="utf-8") as f:
+                log_content = f.read()
+        if "Approved Roster: [agent_A]" not in log_content:
+            time.sleep(0.1)
 
     # Succession WAS retried and log_file was created as a file
     assert log_file.exists()
     assert os.path.isfile(str(log_file))
-    with open(log_file, "r", encoding="utf-8") as f:
-        log_content = f.read()
     assert "Approved Roster: [agent_A]" in log_content
 
 

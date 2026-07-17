@@ -28,6 +28,12 @@ _RELATION_STOPWORDS = {
     "must", "use", "with", "be", "at", "by", "this", "that",
 }
 _RELATION_JACCARD_THRESHOLD = 0.3
+# ponytail: bounds the linking scan to the most recent N constraints per
+# tenant instead of the whole history, so add_session_node stays O(1)-ish
+# per write regardless of how long a tenant has been running. Raise this or
+# swap for an ANN/vector index if a real deployment needs recall beyond the
+# last 200 constraints.
+_RELATION_SCAN_LIMIT = 200
 
 
 def _tokenize(text: str) -> set:
@@ -91,9 +97,13 @@ class GraphMemoryEngine:
             # Create Constraint nodes and edges, then link each to prior
             # constraints that share enough vocabulary to be about the same
             # concern (A-MEM-style dynamic linking, Phase C2b).
-            prior_constraints = db.query(GraphNode).filter(
-                GraphNode.tenant_id == self.tenant_id, GraphNode.type == "Constraint"
-            ).all()
+            prior_constraints = (
+                db.query(GraphNode)
+                .filter(GraphNode.tenant_id == self.tenant_id, GraphNode.type == "Constraint")
+                .order_by(GraphNode.created_at.desc())
+                .limit(_RELATION_SCAN_LIMIT)
+                .all()
+            )
             prior_tokens: list = [
                 (str(n.id), _tokenize(json.loads(str(n.properties)).get("text", "")))
                 for n in prior_constraints
