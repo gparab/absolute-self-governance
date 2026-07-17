@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 import subprocess  # nosec B404
-from typing import Optional, Any
+from typing import Optional, Any, List
 from self_governance.models import SessionStatus, PipelineStatus
 from self_governance.consensus import run_consensus, ConsensusResult
 from self_governance.dimensioning import dimension_swarm
@@ -21,6 +21,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from self_governance.anti_drift import LoopDetector, self_critique
 from self_governance.graph_memory import GraphMemoryEngine
+from self_governance.fact_extraction import extract_facts
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -355,19 +356,23 @@ class ContinuousNudger:
         stop_verdict = self.hook_executor.execute_hook("Stop", {"action": "stop_nudger"})
         _emit_event(self.working_directory, "stop", stop_verdict)
 
-    def _execute_succession_safely(self, content: str, reflection: Optional[str] = None) -> bool:
+    def _execute_succession_safely(
+        self, content: str, reflection: Optional[str] = None, extra_facts: Optional[List[str]] = None
+    ) -> bool:
         """Executes succession handling catching user-facing errors.
 
         Args:
             content: Raw YAML configuration text block.
             reflection: Optional summary of the verify/ship outcome to persist as a
                 graph-memory constraint for the next succession's context read.
+            extra_facts: Optional discrete facts extracted from verify-phase tool
+                output (Phase C2b) to persist alongside the reflection summary.
 
         Returns:
             True if the succession was processed successfully, False on fatal error.
         """
         try:
-            self.trigger_succession(content, reflection=reflection)
+            self.trigger_succession(content, reflection=reflection, extra_facts=extra_facts)
             self.last_content = content
             self.has_transient_error = False
             return True
@@ -623,13 +628,24 @@ class ContinuousNudger:
                         # If fail_on_verify is False, we get here even if verification failed.
                         # However, if verification failed and fail_on_verify is True, we already returned.
                         if not (self.config.fail_on_verify and (pytest_res is None or audit_res is None or pytest_res.returncode != 0 or audit_res.returncode != 0)):
+                            verify_clean = (
+                                pytest_res is not None and audit_res is not None
+                                and pytest_res.returncode == 0 and audit_res.returncode == 0
+                            )
                             reflection = (
                                 "Verify phase passed (pytest + security-audit clean)."
-                                if pytest_res is not None and audit_res is not None
-                                and pytest_res.returncode == 0 and audit_res.returncode == 0
+                                if verify_clean
                                 else "Verify phase skipped or non-blocking failure tolerated (fail_on_verify=False)."
                             )
-                            if not self._execute_succession_safely(content, reflection=reflection):
+                            # Phase C2b: parse discrete facts out of the raw tool
+                            # output rather than folding everything into one
+                            # sentence, so future retrieval can match on the
+                            # specific failing test or finding.
+                            extra_facts = extract_facts(
+                                pytest_output=pytest_res.stdout if pytest_res is not None else "",
+                                audit_output=audit_res.stdout if audit_res is not None else "",
+                            )
+                            if not self._execute_succession_safely(content, reflection=reflection, extra_facts=extra_facts):
                                 return
                 else:
                     self.last_content = content
@@ -740,6 +756,7 @@ class ContinuousNudger:
         adapter: Optional[Any] = None,
         tenant_id: Optional[str] = None,
         reflection: Optional[str] = None,
+        extra_facts: Optional[List[str]] = None,
     ) -> ConsensusResult:
         """Executes SuccessionSession with TETD consensus, logs, and drafts next prompt.
 
@@ -749,6 +766,9 @@ class ContinuousNudger:
             tenant_id: Optional tenant identifier string to isolate tenant logs.
             reflection: Optional verify/ship outcome summary, written as a graph-memory
                 constraint so the next succession's query_context read sees it.
+            extra_facts: Optional discrete facts extracted from pytest/audit output
+                (Phase C2b automatic fact extraction), written as additional
+                graph-memory constraints alongside reflection.
 
         Returns:
             The ConsensusResult output representing approved roster details.
@@ -928,7 +948,7 @@ class ContinuousNudger:
                 session_id=int(dt.datetime.now(dt.timezone.utc).timestamp()),
                 roster=_safe_roster,
                 features=[f"Feature_{i}" for i, v in enumerate(req_vector) if v > 0],
-                constraints=[reflection] if reflection else [],
+                constraints=([reflection] if reflection else []) + (extra_facts or []),
             )
             graph_context = graph_engine.query_context([f"Feature_{i}" for i, v in enumerate(req_vector) if v > 0])
             prior_context_str += "\n" + graph_context + "\n"

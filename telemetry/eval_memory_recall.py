@@ -12,7 +12,10 @@ isolated database and checks the properties C1's read/write loop depends on:
 recall (a reflection written for a feature is retrievable by a later session
 building that feature), tenant isolation (one tenant's constraints never leak
 into another's context), and feature isolation (querying an unbuilt feature
-returns the documented default, not noise).
+returns the documented default, not noise). It also checks Phase C2b's A-MEM-
+style lexical linking: a constraint on one feature surfaces when querying a
+different feature whose constraint shares enough vocabulary to be the same
+concern, and stays silent when it doesn't.
 
 Usage:
     python telemetry/eval_memory_recall.py
@@ -87,6 +90,32 @@ def run_checks() -> list[tuple[str, bool, str]]:
         "feature isolation: unbuilt feature returns the documented default, not noise",
         ctx_unbuilt == "No specific past graph context found for these features.",
         ctx_unbuilt,
+    ))
+
+    # C2b: A-MEM-style linking across features that share vocabulary.
+    tenant_c = GraphMemoryEngine(tenant_id="eval_tenant_c")
+    tenant_c.add_session_node(
+        session_id=1, roster=["Backend Wizard"], features=["Feature_M"],
+        constraints=["Retry network calls with exponential backoff"],
+    )
+    tenant_c.add_session_node(
+        session_id=2, roster=["Backend Wizard"], features=["Feature_N"],
+        constraints=["Network calls need exponential backoff on retry"],
+    )
+    tenant_c.add_session_node(
+        session_id=3, roster=["QA Specialist"], features=["Feature_N"],
+        constraints=["Sanitize HTML before rendering"],
+    )
+    ctx_linked = tenant_c.query_context(["Feature_N"])
+    checks.append((
+        "C2b linking: a lexically related constraint from a different feature is surfaced",
+        "Related past constraint" in ctx_linked and "exponential backoff" in ctx_linked,
+        ctx_linked,
+    ))
+    checks.append((
+        "C2b linking: an unrelated constraint on the same feature is not marked as linked noise",
+        ctx_linked.count("Related past constraint") == 1,
+        ctx_linked,
     ))
 
     return checks

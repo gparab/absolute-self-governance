@@ -84,19 +84,31 @@ hazard recorded in the improvement plan stands). Cost: M.
 **C2a. Production evaluation harness — built.** `telemetry/eval_memory_recall.py`
 (+ `tests/test_eval_memory_recall.py`) seeds a synthetic multi-tenant,
 multi-session scenario into an isolated DB and checks the properties C1's
-read/write loop depends on: recall (a written reflection is retrievable by
-a later session on the same feature), tenant isolation (no cross-tenant
-leakage), and feature isolation (an unbuilt feature returns the documented
-default, not noise). 5/5 checks green as of this writing. This unblocks,
-but does not itself implement, C2b.
+read/write loop depends on: recall, tenant isolation, feature isolation, and
+(after C2b landed) A-MEM linking. 7/7 checks green as of this writing.
 
-**C2b. Recorded, not built:** Mem0-style automatic fact extraction and
-A-MEM dynamic linking (§17.11) — production-scale memory features layered
-on top of C1's explicit constraint list, now that C2a exists to measure
-whether they improve recall/precision over the current baseline rather than
-just asserting it. Sleep-time compute (§17.11.3) — offline consolidation
-between webhook events; architecturally natural for the nudger's idle loop,
-but still premature until C2b has a concrete design.
+**C2b. Automatic fact extraction and lexical A-MEM linking — built.**
+Deliberately scoped down from the book's LLM-driven Mem0/A-MEM design to
+what's verifiable without a new external dependency or an unfalsifiable
+"the model extracted good facts" claim:
+- `src/self_governance/fact_extraction.py`: `extract_facts()` regex-parses
+  the verify phase's own tool output (`pytest -q` FAILED lines, the
+  security-auditor's `[SEVERITY] category` / `Description:` lines) into one
+  discrete constraint per failure/finding, instead of folding everything
+  into a single canned sentence. Wired into `nudger.py`'s ship phase
+  alongside the existing pass/fail `reflection` summary.
+- `GraphMemoryEngine.add_session_node` (graph_memory.py): every new
+  constraint is linked via a bidirectional `RELATES_TO` edge to prior
+  constraints (same tenant) whose token Jaccard similarity clears 0.3 --
+  lexical, not embedding, similarity (no vector store in this stack, and a
+  token-overlap threshold is auditable in a way a cosine cutoff over an
+  opaque embedding isn't). `query_context` now does a one-hop `RELATES_TO`
+  traversal, so a constraint filed under one feature can surface when
+  querying a lexically related constraint on a different feature.
+- Explicitly not attempted: semantic (embedding-based) similarity, and
+  sleep-time offline consolidation (§17.11.3) -- both would need a concrete
+  design and, for embeddings, a new dependency; recorded as still-open
+  future work rather than built speculatively.
 
 ## Adoption rationale (the "organic developer adoption" thread)
 
