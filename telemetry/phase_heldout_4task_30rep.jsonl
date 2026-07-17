@@ -1,0 +1,240 @@
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 1, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 17.61, "estimated_cost_usd": 0.000511}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 3, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 23.65, "estimated_cost_usd": 0.000903}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 0, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 33.98, "estimated_cost_usd": 0.000685}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 2, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 34.14, "estimated_cost_usd": 0.000495}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 4, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 19.19, "estimated_cost_usd": 0.000341}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 8, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 1.99, "estimated_cost_usd": 5.9e-05}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 6, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 18.44, "estimated_cost_usd": 0.000454}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 9, "result": {"passed": true, "failure_class": null, "latency_sec": 21.53, "estimated_cost_usd": 0.000393}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 7, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 33.34, "estimated_cost_usd": 0.000721}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 11, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 19.59, "estimated_cost_usd": 0.000494}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 10, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 30.19, "estimated_cost_usd": 0.000463}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 13, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 11.08, "estimated_cost_usd": 0.00046}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 14, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 15.36, "estimated_cost_usd": 0.000641}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 5, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 75.37, "estimated_cost_usd": 0.000696}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 15, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 24.22, "estimated_cost_usd": 0.000714}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 17, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 17.46, "estimated_cost_usd": 0.000548}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 16, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 20.34, "estimated_cost_usd": 0.000689}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 12, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 60.74, "estimated_cost_usd": 0.000404}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 20, "result": {"passed": true, "failure_class": null, "latency_sec": 22.59, "estimated_cost_usd": 0.000478}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 19, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 28.87, "estimated_cost_usd": 0.000807}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 21, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 17.72, "estimated_cost_usd": 0.000547}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 22, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 10.57, "estimated_cost_usd": 0.000261}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 18, "result": {"passed": true, "failure_class": null, "latency_sec": 37.79, "estimated_cost_usd": 0.000367}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 26, "result": {"passed": true, "failure_class": null, "latency_sec": 9.77, "estimated_cost_usd": 0.000293}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 23, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 23.44, "estimated_cost_usd": 0.00059}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 25, "result": {"passed": true, "failure_class": null, "latency_sec": 19.32, "estimated_cost_usd": 0.000402}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 27, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 16.67, "estimated_cost_usd": 0.000607}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 24, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 35.97, "estimated_cost_usd": 0.000613}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 28, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 29.28, "estimated_cost_usd": 0.000676}}
+{"task_id": "task_rate_limiter", "mode": "baseline", "rep": 29, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 29.68, "estimated_cost_usd": 0.000771}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 2, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 19.84, "estimated_cost_usd": 0.000529}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 3, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 26.97, "estimated_cost_usd": 0.000509}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 1, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 69.67, "estimated_cost_usd": 0.000462}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 5, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 25.74, "estimated_cost_usd": 0.000972}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 4, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 57.52, "estimated_cost_usd": 0.000504}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 0, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 102.73, "estimated_cost_usd": 0.00049}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 8, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.65, "estimated_cost_usd": 0.000489}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 7, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 41.94, "estimated_cost_usd": 0.00071}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 6, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 46.18, "estimated_cost_usd": 0.00138}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 10, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.27, "estimated_cost_usd": 0.000393}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 11, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.3, "estimated_cost_usd": 0.00046}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 9, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 36.19, "estimated_cost_usd": 0.000868}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 12, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 23.79, "estimated_cost_usd": 0.000557}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 14, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.77, "estimated_cost_usd": 0.000547}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 13, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 22.86, "estimated_cost_usd": 0.000472}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 15, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 19.7, "estimated_cost_usd": 0.000485}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 17, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.22, "estimated_cost_usd": 0.000441}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 19, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 21.16, "estimated_cost_usd": 0.000376}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 18, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 43.99, "estimated_cost_usd": 0.000492}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 20, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 41.8, "estimated_cost_usd": 0.001082}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 21, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 27.13, "estimated_cost_usd": 0.000976}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 16, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 71.95, "estimated_cost_usd": 0.000969}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 22, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 23.58, "estimated_cost_usd": 0.000383}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 24, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 11.21, "estimated_cost_usd": 0.000402}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 27, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.51, "estimated_cost_usd": 0.000296}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 25, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 23.26, "estimated_cost_usd": 0.000742}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 28, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.22, "estimated_cost_usd": 0.000492}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 23, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 52.43, "estimated_cost_usd": 0.000427}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 29, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 20.83, "estimated_cost_usd": 0.000714}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 0, "result": {"passed": true, "failure_class": null, "latency_sec": 10.63, "estimated_cost_usd": 0.000281}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 1, "result": {"passed": true, "failure_class": null, "latency_sec": 9.62, "estimated_cost_usd": 0.000308}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 2, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 10.78, "estimated_cost_usd": 0.000169}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 4, "result": {"passed": true, "failure_class": null, "latency_sec": 8.81, "estimated_cost_usd": 0.000309}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 3, "result": {"passed": true, "failure_class": null, "latency_sec": 18.39, "estimated_cost_usd": 0.000336}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 5, "result": {"passed": true, "failure_class": null, "latency_sec": 11.18, "estimated_cost_usd": 0.000334}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 6, "result": {"passed": true, "failure_class": null, "latency_sec": 12.79, "estimated_cost_usd": 0.000321}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 9, "result": {"passed": true, "failure_class": null, "latency_sec": 11.27, "estimated_cost_usd": 0.000349}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 7, "result": {"passed": true, "failure_class": null, "latency_sec": 21.74, "estimated_cost_usd": 0.000382}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 10, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 5.15, "estimated_cost_usd": 0.000166}}
+{"task_id": "task_rate_limiter", "mode": "asg", "rep": 26, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 91.98, "estimated_cost_usd": 0.00085}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 13, "result": {"passed": true, "failure_class": null, "latency_sec": 21.35, "estimated_cost_usd": 0.000307}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 14, "result": {"passed": true, "failure_class": null, "latency_sec": 9.01, "estimated_cost_usd": 0.000273}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 11, "result": {"passed": true, "failure_class": null, "latency_sec": 41.12, "estimated_cost_usd": 0.0003}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 12, "result": {"passed": true, "failure_class": null, "latency_sec": 40.39, "estimated_cost_usd": 0.00033}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 17, "result": {"passed": true, "failure_class": null, "latency_sec": 5.55, "estimated_cost_usd": 0.000231}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 18, "result": {"passed": true, "failure_class": null, "latency_sec": 10.23, "estimated_cost_usd": 0.0003}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 15, "result": {"passed": true, "failure_class": null, "latency_sec": 34.11, "estimated_cost_usd": 0.000428}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 20, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 9.12, "estimated_cost_usd": 0.0002}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 16, "result": {"passed": true, "failure_class": null, "latency_sec": 49.97, "estimated_cost_usd": 0.000293}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 22, "result": {"passed": true, "failure_class": null, "latency_sec": 26.44, "estimated_cost_usd": 0.000241}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 21, "result": {"passed": true, "failure_class": null, "latency_sec": 42.84, "estimated_cost_usd": 0.000334}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 23, "result": {"passed": true, "failure_class": null, "latency_sec": 7.03, "estimated_cost_usd": 0.000281}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 8, "result": {"passed": true, "failure_class": null, "latency_sec": 152.88, "estimated_cost_usd": 0.000285}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 19, "result": {"passed": true, "failure_class": null, "latency_sec": 76.09, "estimated_cost_usd": 0.000306}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 25, "result": {"passed": true, "failure_class": null, "latency_sec": 13.02, "estimated_cost_usd": 0.000328}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 26, "result": {"passed": true, "failure_class": null, "latency_sec": 11.14, "estimated_cost_usd": 0.000308}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 28, "result": {"passed": true, "failure_class": null, "latency_sec": 12.7, "estimated_cost_usd": 0.000366}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 29, "result": {"passed": true, "failure_class": null, "latency_sec": 9.68, "estimated_cost_usd": 0.000297}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 0, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 11.74, "estimated_cost_usd": 0.000372}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 24, "result": {"passed": true, "failure_class": null, "latency_sec": 39.57, "estimated_cost_usd": 0.000234}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 1, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.83, "estimated_cost_usd": 0.000299}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 2, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.68, "estimated_cost_usd": 0.000346}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 3, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 16.87, "estimated_cost_usd": 0.000319}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 5, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.21, "estimated_cost_usd": 0.000339}}
+{"task_id": "task_priority_queue", "mode": "baseline", "rep": 27, "result": {"passed": true, "failure_class": null, "latency_sec": 53.25, "estimated_cost_usd": 0.000312}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 6, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 12.34, "estimated_cost_usd": 0.000324}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 4, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 34.79, "estimated_cost_usd": 0.000321}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 7, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.41, "estimated_cost_usd": 0.00029}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 9, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.27, "estimated_cost_usd": 0.00033}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 12, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.29, "estimated_cost_usd": 0.000363}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 13, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.24, "estimated_cost_usd": 0.000332}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 11, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 20.85, "estimated_cost_usd": 0.000308}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 14, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.56, "estimated_cost_usd": 0.000318}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 8, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 43.04, "estimated_cost_usd": 0.000333}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 10, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 37.37, "estimated_cost_usd": 0.000337}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 16, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.12, "estimated_cost_usd": 0.000325}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 17, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.93, "estimated_cost_usd": 0.000279}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 19, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.18, "estimated_cost_usd": 0.000308}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 18, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.44, "estimated_cost_usd": 0.000325}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 20, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 11.15, "estimated_cost_usd": 0.000326}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 21, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.63, "estimated_cost_usd": 0.000356}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 24, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 8.1, "estimated_cost_usd": 0.000355}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 22, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.99, "estimated_cost_usd": 0.000391}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 23, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 18.79, "estimated_cost_usd": 0.000319}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 26, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 9.33, "estimated_cost_usd": 0.000295}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 25, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.12, "estimated_cost_usd": 0.000314}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 28, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 9.35, "estimated_cost_usd": 0.000323}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 29, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 12.13, "estimated_cost_usd": 0.000331}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 27, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 27.77, "estimated_cost_usd": 0.000578}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 1, "result": {"passed": true, "failure_class": null, "latency_sec": 23.34, "estimated_cost_usd": 0.000558}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 2, "result": {"passed": true, "failure_class": null, "latency_sec": 11.69, "estimated_cost_usd": 0.000435}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 4, "result": {"passed": true, "failure_class": null, "latency_sec": 14.61, "estimated_cost_usd": 0.000399}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 0, "result": {"passed": true, "failure_class": null, "latency_sec": 45.79, "estimated_cost_usd": 0.000375}}
+{"task_id": "task_priority_queue", "mode": "asg", "rep": 15, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 117.85, "estimated_cost_usd": 0.000346}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 6, "result": {"passed": true, "failure_class": null, "latency_sec": 10.29, "estimated_cost_usd": 0.000369}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 3, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 27.71, "estimated_cost_usd": 0.000672}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 5, "result": {"passed": true, "failure_class": null, "latency_sec": 13.2, "estimated_cost_usd": 0.000423}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 9, "result": {"passed": true, "failure_class": null, "latency_sec": 11.83, "estimated_cost_usd": 0.000317}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 10, "result": {"passed": true, "failure_class": null, "latency_sec": 16.18, "estimated_cost_usd": 0.000513}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 7, "result": {"passed": true, "failure_class": null, "latency_sec": 22.11, "estimated_cost_usd": 0.000484}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 11, "result": {"passed": true, "failure_class": null, "latency_sec": 18.76, "estimated_cost_usd": 0.000542}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 8, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 34.38, "estimated_cost_usd": 0.00065}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 12, "result": {"passed": true, "failure_class": null, "latency_sec": 32.59, "estimated_cost_usd": 0.000374}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 15, "result": {"passed": true, "failure_class": null, "latency_sec": 18.0, "estimated_cost_usd": 0.000411}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 17, "result": {"passed": true, "failure_class": null, "latency_sec": 8.23, "estimated_cost_usd": 0.000391}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 14, "result": {"passed": true, "failure_class": null, "latency_sec": 36.1, "estimated_cost_usd": 0.000304}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 16, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 23.61, "estimated_cost_usd": 0.000672}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 13, "result": {"passed": true, "failure_class": null, "latency_sec": 61.82, "estimated_cost_usd": 0.00043}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 18, "result": {"passed": true, "failure_class": null, "latency_sec": 31.26, "estimated_cost_usd": 0.000679}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 21, "result": {"passed": true, "failure_class": null, "latency_sec": 23.43, "estimated_cost_usd": 0.000437}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 20, "result": {"passed": true, "failure_class": null, "latency_sec": 40.16, "estimated_cost_usd": 0.000557}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 22, "result": {"passed": true, "failure_class": null, "latency_sec": 23.87, "estimated_cost_usd": 0.00039}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 19, "result": {"passed": true, "failure_class": null, "latency_sec": 58.22, "estimated_cost_usd": 0.000449}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 23, "result": {"passed": true, "failure_class": null, "latency_sec": 26.21, "estimated_cost_usd": 0.000432}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 26, "result": {"passed": true, "failure_class": null, "latency_sec": 14.21, "estimated_cost_usd": 0.000414}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 27, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 13.33, "estimated_cost_usd": 0.000551}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 29, "result": {"passed": true, "failure_class": null, "latency_sec": 20.83, "estimated_cost_usd": 0.000493}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 28, "result": {"passed": true, "failure_class": null, "latency_sec": 28.63, "estimated_cost_usd": 0.000402}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 25, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 63.9, "estimated_cost_usd": 0.00066}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 1, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 16.53, "estimated_cost_usd": 0.000523}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 3, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 12.25, "estimated_cost_usd": 0.000485}}
+{"task_id": "task_debounce", "mode": "baseline", "rep": 24, "result": {"passed": false, "failure_class": "tests_failed", "latency_sec": 85.33, "estimated_cost_usd": 0.000663}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 2, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 23.14, "estimated_cost_usd": 0.000603}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 0, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 36.07, "estimated_cost_usd": 0.000587}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 4, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 16.82, "estimated_cost_usd": 0.000476}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 7, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.41, "estimated_cost_usd": 0.000357}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 6, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 30.5, "estimated_cost_usd": 0.00043}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 8, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 35.24, "estimated_cost_usd": 0.000518}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 9, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 53.17, "estimated_cost_usd": 0.000396}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 11, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 35.99, "estimated_cost_usd": 0.000341}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 5, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 87.48, "estimated_cost_usd": 0.000789}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 13, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 31.6, "estimated_cost_usd": 0.000351}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 10, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 83.98, "estimated_cost_usd": 0.00038}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 15, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 20.38, "estimated_cost_usd": 0.000572}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 12, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 70.98, "estimated_cost_usd": 0.000554}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 16, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 30.9, "estimated_cost_usd": 0.000436}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 18, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 23.36, "estimated_cost_usd": 0.000792}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 17, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 27.79, "estimated_cost_usd": 0.000655}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 14, "result": {"passed": true, "attempts": 3, "failure_class": null, "latency_sec": 91.95, "estimated_cost_usd": 0.001769}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 20, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 17.31, "estimated_cost_usd": 0.000418}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 23, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 9.07, "estimated_cost_usd": 0.000371}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 24, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.0, "estimated_cost_usd": 0.000438}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 22, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 30.14, "estimated_cost_usd": 0.000606}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 25, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 18.08, "estimated_cost_usd": 0.000592}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 21, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 57.66, "estimated_cost_usd": 0.000402}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 19, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 90.91, "estimated_cost_usd": 0.000449}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 27, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 19.82, "estimated_cost_usd": 0.0007}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 26, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 36.87, "estimated_cost_usd": 0.000415}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 29, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.06, "estimated_cost_usd": 0.000454}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 0, "result": {"passed": true, "failure_class": null, "latency_sec": 16.86, "estimated_cost_usd": 0.000346}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 2, "result": {"passed": true, "failure_class": null, "latency_sec": 11.22, "estimated_cost_usd": 0.000365}}
+{"task_id": "task_debounce", "mode": "asg", "rep": 28, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 46.73, "estimated_cost_usd": 0.000459}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 4, "result": {"passed": true, "failure_class": null, "latency_sec": 13.16, "estimated_cost_usd": 0.000481}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 1, "result": {"passed": true, "failure_class": null, "latency_sec": 35.97, "estimated_cost_usd": 0.000312}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 5, "result": {"passed": true, "failure_class": null, "latency_sec": 18.34, "estimated_cost_usd": 0.000465}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 3, "result": {"passed": true, "failure_class": null, "latency_sec": 37.74, "estimated_cost_usd": 0.000372}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 7, "result": {"passed": true, "failure_class": null, "latency_sec": 14.71, "estimated_cost_usd": 0.000361}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 6, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 24.03, "estimated_cost_usd": 0.00019}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 8, "result": {"passed": true, "failure_class": null, "latency_sec": 13.07, "estimated_cost_usd": 0.000335}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 11, "result": {"passed": true, "failure_class": null, "latency_sec": 8.84, "estimated_cost_usd": 0.000299}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 10, "result": {"passed": true, "failure_class": null, "latency_sec": 11.16, "estimated_cost_usd": 0.00042}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 14, "result": {"passed": false, "failure_class": "no_files_written", "latency_sec": 7.79, "estimated_cost_usd": 0.000171}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 12, "result": {"passed": true, "failure_class": null, "latency_sec": 16.95, "estimated_cost_usd": 0.000311}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 9, "result": {"passed": true, "failure_class": null, "latency_sec": 24.6, "estimated_cost_usd": 0.000498}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 15, "result": {"passed": true, "failure_class": null, "latency_sec": 15.12, "estimated_cost_usd": 0.000349}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 13, "result": {"passed": true, "failure_class": null, "latency_sec": 26.4, "estimated_cost_usd": 0.000636}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 17, "result": {"passed": true, "failure_class": null, "latency_sec": 14.07, "estimated_cost_usd": 0.000288}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 19, "result": {"passed": true, "failure_class": null, "latency_sec": 8.07, "estimated_cost_usd": 0.00033}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 16, "result": {"passed": true, "failure_class": null, "latency_sec": 25.41, "estimated_cost_usd": 0.000589}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 18, "result": {"passed": true, "failure_class": null, "latency_sec": 13.17, "estimated_cost_usd": 0.000358}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 20, "result": {"passed": true, "failure_class": null, "latency_sec": 12.38, "estimated_cost_usd": 0.000401}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 21, "result": {"passed": true, "failure_class": null, "latency_sec": 11.62, "estimated_cost_usd": 0.000384}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 22, "result": {"passed": true, "failure_class": null, "latency_sec": 17.93, "estimated_cost_usd": 0.000468}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 26, "result": {"passed": true, "failure_class": null, "latency_sec": 20.46, "estimated_cost_usd": 0.00046}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 23, "result": {"passed": true, "failure_class": null, "latency_sec": 54.45, "estimated_cost_usd": 0.000455}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 25, "result": {"passed": true, "failure_class": null, "latency_sec": 53.7, "estimated_cost_usd": 0.000521}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 28, "result": {"passed": true, "failure_class": null, "latency_sec": 14.57, "estimated_cost_usd": 0.00036}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 27, "result": {"passed": true, "failure_class": null, "latency_sec": 44.58, "estimated_cost_usd": 0.000358}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 0, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 14.24, "estimated_cost_usd": 0.000682}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 29, "result": {"passed": true, "failure_class": null, "latency_sec": 24.73, "estimated_cost_usd": 0.000409}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 3, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.3, "estimated_cost_usd": 0.000508}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 1, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 21.41, "estimated_cost_usd": 0.000451}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 2, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 33.83, "estimated_cost_usd": 0.000578}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 5, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.1, "estimated_cost_usd": 0.000409}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 4, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 18.71, "estimated_cost_usd": 0.000686}}
+{"task_id": "task_graph_cycle", "mode": "baseline", "rep": 24, "result": {"passed": true, "failure_class": null, "latency_sec": 123.14, "estimated_cost_usd": 0.000393}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 8, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.11, "estimated_cost_usd": 0.000359}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 7, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.8, "estimated_cost_usd": 0.000429}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 9, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 9.52, "estimated_cost_usd": 0.000424}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 10, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 13.04, "estimated_cost_usd": 0.000452}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 12, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 10.1, "estimated_cost_usd": 0.000376}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 6, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 33.64, "estimated_cost_usd": 0.000361}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 11, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 21.16, "estimated_cost_usd": 0.000387}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 14, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 19.46, "estimated_cost_usd": 0.00051}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 15, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 17.62, "estimated_cost_usd": 0.00038}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 13, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 27.37, "estimated_cost_usd": 0.000378}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 19, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.52, "estimated_cost_usd": 0.00036}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 18, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 18.0, "estimated_cost_usd": 0.000399}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 16, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 32.27, "estimated_cost_usd": 0.000615}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 17, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 33.43, "estimated_cost_usd": 0.000413}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 22, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 14.25, "estimated_cost_usd": 0.000347}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 21, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.8, "estimated_cost_usd": 0.000433}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 20, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 22.27, "estimated_cost_usd": 0.000375}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 23, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 21.82, "estimated_cost_usd": 0.000406}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 26, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 20.08, "estimated_cost_usd": 0.000598}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 24, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 28.32, "estimated_cost_usd": 0.000375}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 25, "result": {"passed": true, "attempts": 2, "failure_class": null, "latency_sec": 30.34, "estimated_cost_usd": 0.000755}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 29, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 15.8, "estimated_cost_usd": 0.000472}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 27, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 27.32, "estimated_cost_usd": 0.000823}}
+{"task_id": "task_graph_cycle", "mode": "asg", "rep": 28, "result": {"passed": true, "attempts": 1, "failure_class": null, "latency_sec": 23.69, "estimated_cost_usd": 0.000397}}
