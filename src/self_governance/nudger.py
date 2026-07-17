@@ -355,17 +355,19 @@ class ContinuousNudger:
         stop_verdict = self.hook_executor.execute_hook("Stop", {"action": "stop_nudger"})
         _emit_event(self.working_directory, "stop", stop_verdict)
 
-    def _execute_succession_safely(self, content: str) -> bool:
+    def _execute_succession_safely(self, content: str, reflection: Optional[str] = None) -> bool:
         """Executes succession handling catching user-facing errors.
 
         Args:
             content: Raw YAML configuration text block.
+            reflection: Optional summary of the verify/ship outcome to persist as a
+                graph-memory constraint for the next succession's context read.
 
         Returns:
             True if the succession was processed successfully, False on fatal error.
         """
         try:
-            self.trigger_succession(content)
+            self.trigger_succession(content, reflection=reflection)
             self.last_content = content
             self.has_transient_error = False
             return True
@@ -621,7 +623,13 @@ class ContinuousNudger:
                         # If fail_on_verify is False, we get here even if verification failed.
                         # However, if verification failed and fail_on_verify is True, we already returned.
                         if not (self.config.fail_on_verify and (pytest_res is None or audit_res is None or pytest_res.returncode != 0 or audit_res.returncode != 0)):
-                            if not self._execute_succession_safely(content):
+                            reflection = (
+                                "Verify phase passed (pytest + security-audit clean)."
+                                if pytest_res is not None and audit_res is not None
+                                and pytest_res.returncode == 0 and audit_res.returncode == 0
+                                else "Verify phase skipped or non-blocking failure tolerated (fail_on_verify=False)."
+                            )
+                            if not self._execute_succession_safely(content, reflection=reflection):
                                 return
                 else:
                     self.last_content = content
@@ -731,6 +739,7 @@ class ContinuousNudger:
         handoff_content: str,
         adapter: Optional[Any] = None,
         tenant_id: Optional[str] = None,
+        reflection: Optional[str] = None,
     ) -> ConsensusResult:
         """Executes SuccessionSession with TETD consensus, logs, and drafts next prompt.
 
@@ -738,6 +747,8 @@ class ContinuousNudger:
             handoff_content: The YAML content string from the handoff file.
             adapter: Optional execution adapter instance (e.g. Gemini).
             tenant_id: Optional tenant identifier string to isolate tenant logs.
+            reflection: Optional verify/ship outcome summary, written as a graph-memory
+                constraint so the next succession's query_context read sees it.
 
         Returns:
             The ConsensusResult output representing approved roster details.
@@ -917,7 +928,7 @@ class ContinuousNudger:
                 session_id=int(dt.datetime.now(dt.timezone.utc).timestamp()),
                 roster=_safe_roster,
                 features=[f"Feature_{i}" for i, v in enumerate(req_vector) if v > 0],
-                constraints=[] # Constraints passed in next iteration
+                constraints=[reflection] if reflection else [],
             )
             graph_context = graph_engine.query_context([f"Feature_{i}" for i, v in enumerate(req_vector) if v > 0])
             prior_context_str += "\n" + graph_context + "\n"

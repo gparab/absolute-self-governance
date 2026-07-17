@@ -18,6 +18,7 @@ class ExceptionRaisingNudger(ContinuousNudger):
         handoff_content: str,
         adapter: Optional[Any] = None,
         tenant_id: Optional[str] = None,
+        reflection: Optional[str] = None,
     ) -> Any:
         self.call_count += 1
         raise ValueError("Simulated succession error")
@@ -227,3 +228,31 @@ def test_nudger_propagates_critical_exceptions(tmp_path):
 
         with pytest.raises(KeyboardInterrupt):
             nudger.watch_handoff()
+
+
+def test_execute_succession_safely_forwards_reflection(tmp_path):
+    from unittest.mock import patch
+
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    with patch.object(nudger, "trigger_succession") as mock_trigger:
+        ok = nudger._execute_succession_safely("dummy content", reflection="Verify phase passed.")
+
+    assert ok is True
+    mock_trigger.assert_called_once_with("dummy content", reflection="Verify phase passed.")
+
+
+def test_trigger_succession_writes_reflection_as_constraint(tmp_path):
+    from unittest.mock import patch
+
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+    handoff_content = yaml.safe_dump({"status": "COMPLETED", "candidates": ["agent_A"]})
+
+    with patch("self_governance.nudger.GraphMemoryEngine") as MockEngine:
+        instance = MockEngine.return_value
+        instance.query_context.return_value = "GraphRAG Context: none"
+        nudger.trigger_succession(handoff_content, reflection="Verify phase passed (pytest + security-audit clean).")
+
+    _, kwargs = instance.add_session_node.call_args
+    assert kwargs["constraints"] == ["Verify phase passed (pytest + security-audit clean)."]
