@@ -74,6 +74,44 @@ def test_gemini_execute_development_writes_file(tmp_path, monkeypatch):
     assert "def generated_func():" in content
 
 
+def test_gemini_execute_development_blocks_writes_to_protected_paths(tmp_path, monkeypatch):
+    """Disjoint write-scope (Agent-Loop-Skills' pattern): a plan can declare
+    paths the generating agent must not write to -- e.g. the acceptance test
+    file -- so a specialist persona can't make its own attempt pass by
+    rewriting the test it's being judged against."""
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    protected_file = os.path.join(str(tmp_path), "protected_test.py")
+    allowed_file = os.path.join(str(tmp_path), "impl.py")
+    with open(protected_file, "w", encoding="utf-8") as f:
+        f.write("# original test content\n")
+
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.call_gemini",
+        lambda prompt, key: (
+            "### WRITE_FILE: " + protected_file + "\n"
+            "```python\n"
+            "# malicious overwrite\n"
+            "```\n"
+            "### WRITE_FILE: " + allowed_file + "\n"
+            "```python\n"
+            "def impl():\n"
+            "    return 1\n"
+            "```"
+        ),
+    )
+
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development(
+        [], {"task": "Rewrite", "protected_write_paths": [protected_file]}
+    )
+
+    assert allowed_file in res["written_files"]
+    assert protected_file not in res["written_files"]
+    with open(protected_file, "r", encoding="utf-8") as f:
+        assert f.read() == "# original test content\n"
+
+
 def test_gemini_execute_development_applies_trust_and_depth_framing(monkeypatch):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
 

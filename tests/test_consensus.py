@@ -251,8 +251,15 @@ def test_consensus_engine_llm_score_parsing():
     assert score == 7.2
     assert reason == "No justification provided."
 
-    # 5. Invalid format / exception fallback
+    # 5. Invalid format / exception fallback -- fail-closed (looper's judge-
+    # verdict parsing rule): an unparseable vote must count as a dissent,
+    # never silently default to a moderate-to-good score.
     score, reason = engine._parse_llm_score("Invalid response text")
-    assert score == 7.5
-    assert reason == "No justification provided."
+    assert score == 0.0
+    assert "PARSE_FAILURE" in reason
+
+    # 6. Valid JSON but missing the score field entirely is also treated as
+    # an incomplete/malformed vote, not a silent pass.
+    score, reason = engine._parse_llm_score('{"reason": "looks fine"}')
+    assert score == 0.0
 

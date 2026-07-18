@@ -407,7 +407,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         return target_path if is_safe else None
 
     def _write_files_from_json(
-        self, response_text: str, base_dir: str, package_dir: str
+        self, response_text: str, base_dir: str, package_dir: str,
+        protected_paths: Optional[set] = None,
     ) -> List[str]:
         """Parses response_text as structured JSON and writes files.
 
@@ -415,6 +416,12 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             response_text: JSON string response detailing written files.
             base_dir: Root directory path.
             package_dir: Core package directory path.
+            protected_paths: Optional set of realpaths the generating agent
+                may not write to (e.g. the acceptance test file) -- structurally
+                enforces disjoint write-scope between attempt-author and
+                verifier (Agent-Loop-Skills' pattern, July 2026 topic-page
+                batch), so a specialist persona cannot make its own attempt
+                pass by rewriting the test it's being judged against.
 
         Returns:
             A list of successfully written file path strings.
@@ -440,6 +447,12 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         base_dir,
                     )
                     continue
+                if protected_paths and os.path.realpath(target_path) in protected_paths:
+                    logger.warning(
+                        "Blocked write to protected path (disjoint write-scope): %s",
+                        filepath,
+                    )
+                    continue
 
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 with open(target_path, "w", encoding="utf-8") as f:
@@ -452,7 +465,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         return written_files
 
     def _write_files_legacy(
-        self, response_text: str, base_dir: str, package_dir: str
+        self, response_text: str, base_dir: str, package_dir: str,
+        protected_paths: Optional[set] = None,
     ) -> List[str]:
         """Parses and writes files using the legacy ### WRITE_FILE pattern.
 
@@ -460,6 +474,8 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             response_text: Text response containing legacy file block headers.
             base_dir: Root directory path.
             package_dir: Core package directory path.
+            protected_paths: Optional set of realpaths this generation call
+                may not write to -- see `_write_files_from_json`.
 
         Returns:
             A list of successfully written file path strings.
@@ -477,6 +493,13 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                         "Path traversal attempt blocked: %s is outside %s",
                         filepath,
                         base_dir,
+                    )
+                    i += 1
+                    continue
+                if protected_paths and os.path.realpath(target_path) in protected_paths:
+                    logger.warning(
+                        "Blocked write to protected path (disjoint write-scope): %s",
+                        filepath,
                     )
                     i += 1
                     continue
@@ -586,10 +609,21 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         base_dir = os.path.realpath(".")
         package_dir = os.path.realpath(os.path.dirname(__file__))
 
+        # Disjoint write-scope (Agent-Loop-Skills' pattern, July 2026
+        # topic-page batch): a plan may declare paths the generating agent
+        # must not write to -- e.g. the benchmark harness's acceptance test
+        # file, so a specialist persona can't make its own attempt pass by
+        # rewriting the test it's judged against. Opt-in via plan key, not a
+        # new positional parameter, so every existing caller is unaffected.
+        protected_paths = None
+        raw_protected = plan.get("protected_write_paths")
+        if raw_protected:
+            protected_paths = {os.path.realpath(p) for p in raw_protected}
+
         # 1. Try parsing response_text as structured JSON first
         try:
             written_files = self._write_files_from_json(
-                response_text, base_dir, package_dir
+                response_text, base_dir, package_dir, protected_paths=protected_paths
             )
             return {
                 "status": SessionStatus.COMPLETED.value.lower(),
@@ -604,7 +638,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         # 2. Fallback: Parse and write files using the legacy ### WRITE_FILE pattern
         written_files = self._write_files_legacy(
-            response_text, base_dir, package_dir
+            response_text, base_dir, package_dir, protected_paths=protected_paths
         )
 
         # 3. Last resort: both parsers produced nothing from a non-empty
@@ -628,7 +662,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
             if retry_text:
                 try:
                     written_files = self._write_files_from_json(
-                        retry_text, base_dir, package_dir
+                        retry_text, base_dir, package_dir, protected_paths=protected_paths
                     )
                     response_text = retry_text
                 except Exception as retry_err:

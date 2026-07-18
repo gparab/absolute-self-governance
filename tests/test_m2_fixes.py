@@ -90,24 +90,28 @@ def test_consensus_exception_logging(caplog):
     engine = ConsensusEngine(["agent_A"])
     
     with caplog.at_level(logging.WARNING, logger="self_governance.consensus"):
-        # Test JSON parsing exception
+        # Test JSON parsing exception -- fail-closed (looper's judge-verdict
+        # parsing rule): an unparseable vote counts as a dissent, not a
+        # silent default score.
         score, justification = engine._parse_llm_score("invalid json string")
-        assert score == 7.5
-        assert justification == "No justification provided."
+        assert score == 0.0
+        assert "PARSE_FAILURE" in justification
         assert any("Failed to parse LLM response as JSON" in record.message for record in caplog.records)
-        
+
         caplog.clear()
-        
+
         # Test format parsing exception (Split reason exception)
         # Score: is present but split/Reason: raises exception because it can't be converted to float
         score, justification = engine._parse_llm_score("Score: abc Reason: none")
-        assert score == 7.5
+        assert score == 0.0
+        assert "PARSE_FAILURE" in justification
         assert any("Failed to parse Score/Reason text formatting" in record.message for record in caplog.records)
 
         caplog.clear()
-        
+
         # Test direct float parsing exception
         # No Score: but direct float conversion fails
         score, justification = engine._parse_llm_score("not a float")
-        assert score == 7.5
+        assert score == 0.0
+        assert "PARSE_FAILURE" in justification
         assert any("Failed to parse response as float" in record.message for record in caplog.records)

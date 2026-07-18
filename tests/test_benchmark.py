@@ -151,6 +151,77 @@ def test_asg_rotates_perspectives_and_stops_on_first_pass(monkeypatch, tmp_path)
     )
 
 
+def test_asg_detects_stalled_attempt_with_identical_failing_test_set(monkeypatch, tmp_path):
+    """A rewrite that fails the exact same tests as the previous attempt made
+    no progress -- distinct from a rewrite that fails differently (looper's
+    no-progress-signature rule, July 2026 topic-page batch)."""
+    monkeypatch.chdir(tmp_path)
+    calls = {"dev": 0, "test": 0}
+
+    def fake_dev(self, agents, plan):
+        calls["dev"] += 1
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        calls["test"] += 1
+        if calls["test"] <= 2:
+            # Identical failing-test set both times -- no progress made.
+            return {"status": "failed", "raw_test_output": "FAILED tests/test_x.py::test_boundary - AssertionError"}
+        return {"status": "completed", "raw_test_output": "1 passed"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["passed"] is True
+    assert res["stalled_attempts"] == 1
+
+
+def test_asg_does_not_flag_stall_when_failing_tests_differ(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    calls = {"dev": 0, "test": 0}
+
+    def fake_dev(self, agents, plan):
+        calls["dev"] += 1
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        calls["test"] += 1
+        if calls["test"] == 1:
+            return {"status": "failed", "raw_test_output": "FAILED tests/test_x.py::test_boundary - AssertionError"}
+        if calls["test"] == 2:
+            return {"status": "failed", "raw_test_output": "FAILED tests/test_x.py::test_other - ValueError"}
+        return {"status": "completed", "raw_test_output": "1 passed"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["passed"] is True
+    assert res["stalled_attempts"] == 0
+
+
+def test_asg_no_stall_signature_for_unparseable_raw_output(monkeypatch, tmp_path):
+    """Raw output that doesn't match the FAILED-line format yields an empty
+    signature, which must never be treated as a match against itself --
+    otherwise every non-pytest-formatted failure would falsely flag as a
+    stall on the very first repeat."""
+    monkeypatch.chdir(tmp_path)
+    calls = {"dev": 0, "test": 0}
+
+    def fake_dev(self, agents, plan):
+        calls["dev"] += 1
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        calls["test"] += 1
+        return {"status": "failed", "raw_test_output": "still failing"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["passed"] is False
+    assert res["stalled_attempts"] == 0
+
+
 def test_asg_caps_at_three_attempts(monkeypatch, tmp_path):
     """A persistently failing unit stops after the roster is exhausted
     (3 attempts) -- honest failure, not an infinite retry burn."""

@@ -212,6 +212,7 @@ def run_asg_mode(
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     from self_governance.metrics import ASG_PIPELINE_LATENCY
     from self_governance.agency_agents_adapter import get_persona
+    from self_governance.fact_extraction import extract_facts
 
     start_time = time.time()
 
@@ -234,6 +235,15 @@ def run_asg_mode(
     passed = False
     attempts = 0
     failure_log = ""
+    # Stall detection (looper's no-progress-signature rule, July 2026 topic-page
+    # batch): a rewrite that produces the exact same failing-test set as the
+    # previous attempt made no progress, distinct from a rewrite that fails
+    # differently. Signature is the parsed set of failing tests (fact_extraction's
+    # existing FAILED-line regex), not raw output text, so it's stable across
+    # attempts even if timing/whitespace differs. Purely an observability signal
+    # here -- not wired into procedural memory or the pass/fail verdict itself.
+    prior_failure_signature: Optional[frozenset] = None
+    stalled_attempts = 0
 
     with ASG_PIPELINE_LATENCY.labels(phase="asg").time():
         for role in roster:
@@ -248,6 +258,11 @@ def run_asg_mode(
                 "task": task["description"],
                 "acceptance_tests": task["test_code"],
                 "lead_perspective": role,
+                # Disjoint write-scope (Agent-Loop-Skills' pattern, July 2026
+                # topic-page batch): the generating persona must not be able
+                # to make its own attempt pass by overwriting the acceptance
+                # test file it's being judged against.
+                "protected_write_paths": [test_filepath],
             }
             if failure_log:
                 plan["previous_attempt_failed_tests"] = str(failure_log)[:4000]
@@ -266,6 +281,15 @@ def run_asg_mode(
             if passed:
                 break
             failure_log = test_res.get("raw_test_output") or test_res.get("output", "")
+
+            current_signature = frozenset(extract_facts(pytest_output=str(failure_log)))
+            if current_signature and current_signature == prior_failure_signature:
+                stalled_attempts += 1
+                logger.warning(
+                    "ASG mode: attempt %d for role %s made no progress -- identical failing-test set as the previous attempt.",
+                    attempts, role,
+                )
+            prior_failure_signature = current_signature or prior_failure_signature
 
     # Cleanup files
     for f_path in written_files:
@@ -286,6 +310,7 @@ def run_asg_mode(
     return {
         "passed": passed,
         "attempts": attempts,
+        "stalled_attempts": stalled_attempts,
         "failure_class": _classify_failure(passed, written_files, test_res),
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),

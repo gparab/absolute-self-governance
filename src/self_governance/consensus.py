@@ -203,6 +203,14 @@ class ConsensusEngine:
                 peer_feedback += f"Advisor Strategic Advice: {advisor_advice}\n\n"
         return peer_feedback
 
+    # Fail-closed default (looper's judge-verdict parsing rule, July 2026
+    # topic-page batch): a totally unparseable vote must count as a dissent,
+    # never a silent pass. The prior default of 7.5 sat just above the
+    # consensus threshold's 7.0 floor -- an uninterpretable response could
+    # have counted as approval in a decayed round. 0.0 is unambiguous.
+    _PARSE_FAILURE_SCORE = 0.0
+    _PARSE_FAILURE_JUSTIFICATION = "PARSE_FAILURE: raw response could not be interpreted as a valid vote; treated as dissent (fail-closed)."
+
     def _parse_llm_score(self, res: str) -> tuple[float, str]:
         """Parses the score and justification from the LLM's raw response.
 
@@ -210,13 +218,15 @@ class ConsensusEngine:
             res: Raw text response from the LLM.
 
         Returns:
-            A tuple of (score (float), justification (str)).
+            A tuple of (score (float), justification (str)). On total parse
+            failure, returns (_PARSE_FAILURE_SCORE, _PARSE_FAILURE_JUSTIFICATION)
+            -- fail-closed, never a silent moderate-to-good default.
         """
-        score = 7.5
-        justification = "No justification provided."
+        score = self._PARSE_FAILURE_SCORE
+        justification = self._PARSE_FAILURE_JUSTIFICATION
         try:
             data = json.loads(res)
-            score = float(data.get("score", 7.5))
+            score = float(data.get("score", self._PARSE_FAILURE_SCORE))
             justification = data.get("reason", "No justification provided.")
         except Exception:
             logger.warning("Failed to parse LLM response as JSON. Falling back to regex/text heuristics. Raw response: %r", res, exc_info=True)
@@ -229,13 +239,16 @@ class ConsensusEngine:
                         justification = parts[1].strip()
                 except Exception:
                     logger.warning("Failed to parse Score/Reason text formatting. Raw response: %r", res, exc_info=True)
-                    score = 7.5
+                    score = self._PARSE_FAILURE_SCORE
+                    justification = self._PARSE_FAILURE_JUSTIFICATION
             else:
                 try:
                     score = float(res)
+                    justification = "No justification provided."
                 except Exception:
-                    logger.warning("Failed to parse response as float. Defaulting score to 7.5. Raw response: %r", res, exc_info=True)
-                    score = 7.5
+                    logger.warning("Failed to parse response as float. Treating as dissent (fail-closed). Raw response: %r", res, exc_info=True)
+                    score = self._PARSE_FAILURE_SCORE
+                    justification = self._PARSE_FAILURE_JUSTIFICATION
         return score, justification
 
     def _score_agent(self, agent: str, peer_feedback: str) -> tuple[float, str]:
