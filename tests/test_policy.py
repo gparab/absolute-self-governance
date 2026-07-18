@@ -18,6 +18,7 @@ from self_governance.policy_rules.path_protection import (
     WorktreePathTraversalRule,
 )
 from self_governance.policy_rules.rate_limits import GitMutationRateLimitRule
+from self_governance.policy_rules.import_boundary import ImportBoundaryRule, LayerRule
 
 
 def test_default_allow_with_no_rules():
@@ -234,3 +235,61 @@ def test_first_deny_wins_short_circuits_evaluation():
 
     assert decision.allowed is False
     assert decision.rule_name == "authority_hierarchy"
+
+
+def test_import_boundary_rule_denies_forbidden_import():
+    rule = ImportBoundaryRule(
+        [LayerRule(layer="domain", path_patterns=["domain/*.py"], forbidden_imports=["infra"])]
+    )
+    action = PolicyAction(
+        name="write_file", path="domain/order.py", content="import infra.db\n"
+    )
+
+    decision = rule.evaluate(action)
+
+    assert decision is not None
+    assert decision.decision == Decision.DENY
+    assert "infra" in decision.reason
+
+
+def test_import_boundary_rule_allows_permitted_import():
+    rule = ImportBoundaryRule(
+        [LayerRule(layer="domain", path_patterns=["domain/*.py"], forbidden_imports=["infra"])]
+    )
+    action = PolicyAction(
+        name="write_file", path="domain/order.py", content="import collections\n"
+    )
+
+    assert rule.evaluate(action) is None
+
+
+def test_import_boundary_rule_abstains_outside_declared_layers():
+    rule = ImportBoundaryRule(
+        [LayerRule(layer="domain", path_patterns=["domain/*.py"], forbidden_imports=["infra"])]
+    )
+    action = PolicyAction(
+        name="write_file", path="scripts/tool.py", content="import infra.db\n"
+    )
+
+    assert rule.evaluate(action) is None
+
+
+def test_import_boundary_rule_abstains_without_content():
+    rule = ImportBoundaryRule(
+        [LayerRule(layer="domain", path_patterns=["domain/*.py"], forbidden_imports=["infra"])]
+    )
+    assert rule.evaluate(PolicyAction(name="write_file", path="domain/order.py")) is None
+
+
+def test_import_boundary_rule_catches_from_import_variant():
+    rule = ImportBoundaryRule(
+        [LayerRule(layer="domain", path_patterns=["domain/*.py"], forbidden_imports=["infra"])]
+    )
+    action = PolicyAction(
+        name="write_file", path="domain/order.py", content="from infra.db import Session\n"
+    )
+
+    decision = rule.evaluate(action)
+
+    assert decision is not None
+    assert decision.decision == Decision.DENY

@@ -51,6 +51,7 @@ class PolicyAction:
     name: str
     argv: List[str] = field(default_factory=list)
     path: Optional[str] = None
+    content: Optional[str] = None
     source: ActionSource = ActionSource.NUDGER
     risk_level: RiskLevel = RiskLevel.CAUTION
 

@@ -112,6 +112,52 @@ def test_gemini_execute_development_blocks_writes_to_protected_paths(tmp_path, m
         assert f.read() == "# original test content\n"
 
 
+def test_gemini_execute_development_blocks_forbidden_import(tmp_path, monkeypatch):
+    """Pre-edit import/architecture boundary gate (OpenLore's pattern): a
+    plan's layer_rules deny a generated file's write before it lands if its
+    imports cross a declared architecture boundary."""
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    domain_dir = os.path.join(str(tmp_path), "domain")
+    os.makedirs(domain_dir)
+    blocked_file = os.path.join(domain_dir, "order.py")
+    allowed_file = os.path.join(str(tmp_path), "infra_impl.py")
+
+    monkeypatch.setattr(
+        "self_governance.gemini_adapter.call_gemini",
+        lambda prompt, key: (
+            "### WRITE_FILE: " + blocked_file + "\n"
+            "```python\n"
+            "import infra.db\n"
+            "```\n"
+            "### WRITE_FILE: " + allowed_file + "\n"
+            "```python\n"
+            "def impl():\n"
+            "    return 1\n"
+            "```"
+        ),
+    )
+
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    res = adapter.execute_development(
+        [],
+        {
+            "task": "Rewrite",
+            "layer_rules": [
+                {
+                    "layer": "domain",
+                    "path_patterns": [domain_dir + "/*.py"],
+                    "forbidden_imports": ["infra"],
+                }
+            ],
+        },
+    )
+
+    assert allowed_file in res["written_files"]
+    assert blocked_file not in res["written_files"]
+    assert not os.path.exists(blocked_file)
+
+
 def test_gemini_execute_development_applies_trust_and_depth_framing(monkeypatch):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
 
