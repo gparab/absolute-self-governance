@@ -74,6 +74,25 @@ def test_gemini_execute_development_writes_file(tmp_path, monkeypatch):
     assert "def generated_func():" in content
 
 
+def test_gemini_execute_development_applies_trust_and_depth_framing(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    captured_prompts = []
+
+    def fake_call_gemini(prompt, key):
+        captured_prompts.append(prompt)
+        return '{"explanation": "done", "written_files": []}'
+
+    monkeypatch.setattr("self_governance.gemini_adapter.call_gemini", fake_call_gemini)
+
+    adapter = GeminiExecutionAdapter(api_key="valid_key")
+    adapter.execute_development([], {"task": "Write test func"})
+
+    assert len(captured_prompts) == 1
+    assert "trusted, capable engineer with full autonomy" in captured_prompts[0]
+    assert "document the root cause" in captured_prompts[0]
+
+
 def test_gemini_execute_tests_subprocess(monkeypatch):
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     import subprocess

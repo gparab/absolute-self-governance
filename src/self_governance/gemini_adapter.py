@@ -21,6 +21,21 @@ from self_governance.config import DEFAULT_MODEL
 
 logger = logging.getLogger("self_governance.gemini_adapter")
 
+# Trust/depth framing (Wuji 2026, arXiv 2603.14373; wuji-labs/nopua):
+# a single-author study, not yet independently replicated, found trust-framed
+# system prompts drove deeper investigation and universal root-cause
+# documentation versus unframed or fear-framed prompts, with fear framing no
+# better than no framing at all. Applied uniformly to every execute_development
+# call -- baseline and ASG mode alike -- so it doesn't bias either arm of the
+# benchmark. This is a prompt-wording change to the production code path, not
+# an opt-in memory feature; it has not been re-validated against this
+# project's own benchmark harness (see docs/BENCHMARKING.md to do so).
+_TRUST_AND_DEPTH_FRAMING = (
+    " You are a trusted, capable engineer with full autonomy over this implementation -- "
+    "go beyond the stated task where it genuinely improves correctness, and document the "
+    "root cause of any issue you find, not just the symptom."
+)
+
 
 def call_safely(func: Any, prompt: str, api_key: Optional[str], **kwargs: Any) -> Any:
     """Safely invokes a Gemini call function filtering out unsupported parameters.
@@ -522,6 +537,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         prompt = (
             f"Implement development changes based on the following plan: {json.dumps(plan)}.\n"
             "Return a JSON object containing an explanation and an array of written_files with their filepath and content."
+            f"{_TRUST_AND_DEPTH_FRAMING}"
         )
         if agents:
             roles = ", ".join(agent.role for agent in agents)

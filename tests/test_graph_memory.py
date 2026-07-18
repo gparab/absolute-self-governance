@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from self_governance.db import Base, engine, SessionLocal, GraphNode, GraphEdge
-from self_governance.graph_memory import FLAW_CATEGORIES, GraphMemoryEngine
+from self_governance.graph_memory import EVIDENCE_TAGS, FLAW_CATEGORIES, GraphMemoryEngine
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_db():
@@ -546,3 +546,100 @@ def test_flaw_categories_is_a_fixed_taxonomy_containing_expected_values():
         "wrong_persona_order", "missing_requirement", "ambiguous_requirement",
         "unknown",
     }
+
+
+def test_evidence_tags_is_a_fixed_taxonomy_containing_expected_values():
+    assert EVIDENCE_TAGS == {"FACT", "INFERENCE", "ASSUMPTION", "UNKNOWN"}
+
+
+def test_untagged_outcome_gets_full_confidence_unchanged_from_before():
+    tenant = "test_tenant_evidence_untagged"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["ema_success_score"] == 1.0
+
+
+def test_fact_tagged_outcome_gets_full_confidence():
+    tenant = "test_tenant_evidence_fact"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=True, evidence_tag="FACT",
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["ema_success_score"] == 1.0
+
+
+def test_assumption_tagged_outcome_moves_score_less_than_fact():
+    tenant_fact = "test_tenant_evidence_fact_cmp"
+    tenant_assumption = "test_tenant_evidence_assumption_cmp"
+    engine_fact = GraphMemoryEngine(tenant_id=tenant_fact)
+    engine_assumption = GraphMemoryEngine(tenant_id=tenant_assumption)
+
+    engine_fact.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=True, evidence_tag="FACT",
+    )
+    engine_assumption.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=True, evidence_tag="ASSUMPTION",
+    )
+
+    fact_result = engine_fact.recommend_procedure("boundary condition test failure")
+    assumption_result = engine_assumption.recommend_procedure("boundary condition test failure")
+
+    assert fact_result["ema_success_score"] == 1.0
+    assert assumption_result["ema_success_score"] == 0.8  # 0.5 + 0.6 * (1.0 - 0.5)
+    assert assumption_result["ema_success_score"] < fact_result["ema_success_score"]
+
+
+def test_unrecognized_evidence_tag_is_normalized_to_unknown_confidence():
+    tenant = "test_tenant_evidence_unrecognized"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=True, evidence_tag="made_up_tag", critique="looked fine to me",
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["ema_success_score"] == 0.85  # 0.5 + 0.7 * (1.0 - 0.5), UNKNOWN confidence
+    assert result["critiques"] == ["[UNKNOWN] looked fine to me"]
+
+
+def test_critique_is_prefixed_with_recognized_evidence_tag():
+    tenant = "test_tenant_evidence_critique_prefix"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=False, evidence_tag="INFERENCE", critique="the retry backoff never fired",
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["critiques"] == ["[INFERENCE] the retry backoff never fired"]
+
+
+def test_critique_without_evidence_tag_is_stored_unprefixed():
+    tenant = "test_tenant_evidence_critique_no_tag"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"],
+        passed=True, critique="worked as expected",
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["critiques"] == ["worked as expected"]

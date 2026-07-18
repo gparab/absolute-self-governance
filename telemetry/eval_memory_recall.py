@@ -210,6 +210,28 @@ def run_checks() -> list[tuple[str, bool, str]]:
         str(exploration_pick),
     ))
 
+    # Evidence-tagging (council-of-high-intelligence idea): an ASSUMPTION-tagged
+    # outcome should move the EMA score less confidently than a FACT-tagged one.
+    tenant_g = GraphMemoryEngine(tenant_id="eval_tenant_g")
+    tenant_g.record_procedure_outcome(
+        name="strategy_fact", trigger_pattern="boundary condition test failure",
+        steps=["a"], passed=True, evidence_tag="FACT", critique="observed the test pass directly",
+    )
+    tenant_h = GraphMemoryEngine(tenant_id="eval_tenant_h")
+    tenant_h.record_procedure_outcome(
+        name="strategy_assumption", trigger_pattern="boundary condition test failure",
+        steps=["a"], passed=True, evidence_tag="ASSUMPTION", critique="probably fine, didn't re-run",
+    )
+    fact_pick = tenant_g.recommend_procedure("boundary condition test failure")
+    assumption_pick = tenant_h.recommend_procedure("boundary condition test failure")
+    checks.append((
+        "evidence-tagging: an ASSUMPTION-tagged outcome moves the EMA score less than a FACT-tagged one",
+        fact_pick is not None and assumption_pick is not None
+        and assumption_pick["ema_success_score"] < fact_pick["ema_success_score"]
+        and "[ASSUMPTION]" in assumption_pick["critiques"][0],
+        f"fact={fact_pick}, assumption={assumption_pick}",
+    ))
+
     return checks
 
 

@@ -1,24 +1,36 @@
-# Absolute Self-Governance in Multi-Agent Systems
+# Absolute Self-Governance
 
-[![PyPI](https://img.shields.io/pypi/v/absolute-self-governance)](https://pypi.org/project/absolute-self-governance/)
-[![CI](https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml/badge.svg)](https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/pypi/pyversions/absolute-self-governance)](https://pypi.org/project/absolute-self-governance/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <img src="assets/readme/hero.svg" width="100%" alt="Absolute Self-Governance: a council of agents votes on which roles a task needs via TETD consensus, and team size scales to measured complexity — real dimension_swarm() output shown, 1 agent for a trivial task versus 9 for a complex one.">
+</p>
 
-An orchestration layer for AI-assisted development: a council of role-based agents votes on which roles a task actually needs — via an adaptive consensus algorithm (TETD) rather than a fixed team — and team size scales with measured task complexity instead of staffing every task the same way. The point isn't more agents; it's the *right* number, with the cost of every run visible in real time.
+A council of role-based agents votes on which roles a task needs — via an adaptive consensus algorithm (TETD) rather than a fixed team — and team size scales with measured task complexity instead of staffing every task the same way. The point isn't more agents; it's the *right* number, with the cost of every run visible in real time.
+
+<p align="center">
+  <a href="https://pypi.org/project/absolute-self-governance/"><img src="https://img.shields.io/pypi/v/absolute-self-governance" alt="PyPI"></a>
+  <a href="https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml"><img src="https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/absolute-self-governance/"><img src="https://img.shields.io/pypi/pyversions/absolute-self-governance" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 ```bash
 pipx install absolute-self-governance
 self-governance demo         # no API key, no cost, no setup — see it work in 30 seconds
 ```
 
-`demo` computes real team-sizing math for a trivial task vs. a complex one (1 agent vs. 9, via the same `dimension_swarm` logic production traffic uses) and opens a live dashboard showing cost update in real time — zero API key, zero spend. Once you have a Gemini key:
+Once you have a Gemini key:
 
 ```bash
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
 
-📄 **[Read the paper](paper.pdf)** — a live benchmark we've run three times, honestly, in public. First pass (§4.7): our own hypothesis about multi-agent overhead paying off on harder tasks didn't hold at scale, so we reported the real number instead of the flattering one. Second pass (§4.7.1), a different model, replicated the same shortfall and diagnosed why: the pipeline's review/test stages discarded their own output, so nothing fed back into the result. Third pass (§4.7.2), after fixing that — perspective-rotating attempts with real failure feedback and an early exit — ASG passed 180/180 vs. baseline's 176/180 at parity latency, though the confidence intervals still overlap and we say so. See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) to reproduce any of it (model is a runtime `--model` flag, not hardcoded).
+## Proof: three honest benchmark passes, not one flattering one
+
+<p align="center">
+  <img src="assets/readme/benchmark-honesty.svg" width="100%" alt="Three benchmark passes: pass one reported that the overhead hypothesis did not hold, pass two on a different model diagnosed why, pass three measured 180 out of 180 versus baseline's 176 out of 180 at parity latency, with overlapping confidence intervals disclosed.">
+</p>
+
+Pass two's diagnosis: the pipeline's review/test stages were discarding their own output, so nothing fed back into the result. Pass three's fix: perspective-rotating attempts with real failure feedback and an early exit. 📄 **[Read the paper](paper.pdf)** for the full methodology, or reproduce any of it yourself via [docs/BENCHMARKING.md](docs/BENCHMARKING.md) — the model is a runtime `--model` flag, never hardcoded.
 
 ---
 
@@ -531,7 +543,9 @@ Your IDE agent runner (Cursor, Claude Code, etc.) reads this newly generated pro
 
 ### Specialized Swarm Personas (agency-agents Catalog)
 
-To make the generated agent swarms highly specialized and capable of handling complex SDLC flows, the orchestrator integrates the `agency-agents` persona catalog to resolve requirements to concrete expert roles:
+The persona catalog (`src/self_governance/assets/agents.json`, loaded once at import time into `PERSONA_REGISTRY`) is **354 named personas**, not a handful of illustrative roles: **150 SDLC personas** (sourced from `msitarzewski/agency-agents` — Engineering, Design, Marketing, Sales, and Paid Media divisions) plus **204 pseudonymous expert-archetype personas** used in the Autonomous Council succession-consensus tier. Any role name not found in either static registry falls through to a `DynamicAgentFactory` that synthesizes a persona on the fly via LLM and caches it for the session.
+
+The three roles the fixed 3-role benchmark path (§4.7) actually exercises are the SDLC-division defaults:
 
 * **Backend Wizard**: Expert in backend engineering, modular structures, proper type annotations, and clean code principles.
 * **QA Specialist**: Expert in designing complete unit/integration test suites, covering boundary conditions, and checking for concurrency race conditions.

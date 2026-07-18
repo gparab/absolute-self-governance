@@ -60,6 +60,20 @@ FLAW_CATEGORIES = frozenset({
     "wrong_persona_order", "missing_requirement", "ambiguous_requirement",
     "unknown",
 })
+
+# Evidence-tagging for critique text (idea surveyed from
+# 0xNyk/council-of-high-intelligence's evidence-labeled verdict protocol,
+# July 2026 batch): a critique that's an unverified ASSUMPTION shouldn't move
+# a strategy's score as confidently as one grounded in an observed FACT.
+# Confidence weights blend the raw pass/fail outcome toward neutral (0.5)
+# before the EMA update -- an ASSUMPTION-tagged pass nudges the score up less
+# than a FACT-tagged one. Omitting the tag entirely (the default, and every
+# pre-existing caller) gets full confidence: unchanged from before this
+# feature existed.
+EVIDENCE_TAGS = frozenset({"FACT", "INFERENCE", "ASSUMPTION", "UNKNOWN"})
+_EVIDENCE_CONFIDENCE = {"FACT": 1.0, "INFERENCE": 0.85, "ASSUMPTION": 0.6, "UNKNOWN": 0.7}
+_UNTAGGED_CONFIDENCE = 1.0
+_UNRECOGNIZED_EVIDENCE_TAG = "UNKNOWN"
 _UNKNOWN_FLAW_CATEGORY = "unknown"
 _MAX_STORED_CRITIQUES = 5
 # AgentNet eq. 2's decayed-edge-weight formula, applied to a strategy's
@@ -231,6 +245,7 @@ class GraphMemoryEngine:
         passed: bool,
         flaw_category: "str | None" = None,
         critique: "str | None" = None,
+        evidence_tag: "str | None" = None,
     ) -> str:
         """Records an outcome for a named repair strategy (Phase D3, extended).
 
@@ -252,6 +267,12 @@ class GraphMemoryEngine:
             critique: Optional short natural-language note on why this
                 attempt passed or failed (Reflexion-style). The most recent
                 _MAX_STORED_CRITIQUES are kept; older ones are dropped.
+            evidence_tag: Optional confidence label (see EVIDENCE_TAGS) for
+                how certain this outcome's pass/fail judgment is. An
+                ASSUMPTION-tagged outcome moves the EMA score less than a
+                FACT-tagged one; omitting the tag gives full confidence
+                (identical to behavior before this parameter existed).
+                Anything outside the fixed set is normalized to "UNKNOWN".
 
         Returns:
             The procedure node ID.
@@ -275,8 +296,14 @@ class GraphMemoryEngine:
             props["failure_count"] = props.get("failure_count", 0) + (0 if passed else 1)
 
             outcome = 1.0 if passed else 0.0
+            if evidence_tag is None:
+                confidence = _UNTAGGED_CONFIDENCE
+            else:
+                normalized_tag = evidence_tag if evidence_tag in EVIDENCE_TAGS else _UNRECOGNIZED_EVIDENCE_TAG
+                confidence = _EVIDENCE_CONFIDENCE[normalized_tag]
+            weighted_outcome = 0.5 + confidence * (outcome - 0.5)
             prior_ema = props.get("ema_success_score")
-            props["ema_success_score"] = outcome if prior_ema is None else _EMA_ALPHA * outcome + (1 - _EMA_ALPHA) * prior_ema
+            props["ema_success_score"] = weighted_outcome if prior_ema is None else _EMA_ALPHA * weighted_outcome + (1 - _EMA_ALPHA) * prior_ema
 
             category = flaw_category if flaw_category in FLAW_CATEGORIES else _UNKNOWN_FLAW_CATEGORY
             flaw_counts = props.get("flaw_category_counts", {})
@@ -285,7 +312,11 @@ class GraphMemoryEngine:
 
             if critique:
                 critiques = props.get("critiques", [])
-                critiques.append(critique)
+                if evidence_tag is not None:
+                    tag_label = evidence_tag if evidence_tag in EVIDENCE_TAGS else _UNRECOGNIZED_EVIDENCE_TAG
+                    critiques.append(f"[{tag_label}] {critique}")
+                else:
+                    critiques.append(critique)
                 props["critiques"] = critiques[-_MAX_STORED_CRITIQUES:]
 
             procedure_node = GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props))

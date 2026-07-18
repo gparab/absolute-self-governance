@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="300" viewBox="0 0 1200 300"
+     role="img" aria-labelledby="title2 desc2">
+  <title id="title2">Three benchmark passes, reported honestly</title>
+  <desc id="desc2">Pass one found the overhead hypothesis did not hold and reported the real number. Pass two, on a different model, replicated the shortfall and diagnosed a broken feedback loop. Pass three, after fixing it, measured ASG at 180 out of 180 versus baseline's 176 out of 180 at parity latency, with overlapping confidence intervals disclosed rather than hidden.</desc>
+
+  <rect width="1200" height="300" rx="26" fill="#171a29"/>
+
+  <text x="64" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13" letter-spacing="1.5" fill="#6b7089" font-weight="600">THREE LIVE BENCHMARK PASSES — SAME HONESTY STANDARD EACH TIME</text>
+
+  <!-- connecting line -->
+  <line x1="120" y1="150" x2="1080" y2="150" stroke="#2a2f45" stroke-width="2"/>
+
+  <!-- Pass 1 -->
+  <g transform="translate(120 150)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" text-anchor="middle">
+    <circle r="9" fill="#f7768e"/>
+    <text x="0" y="-24" font-size="13" fill="#f7768e" font-weight="700">PASS 1 · §4.7</text>
+    <text x="0" y="36" font-size="14" fill="#c0caf5">Overhead hypothesis</text>
+    <text x="0" y="58" font-size="14" fill="#c0caf5">didn't hold at scale —</text>
+    <text x="0" y="80" font-size="14" fill="#f2f0ea" font-weight="600">reported as-is</text>
+  </g>
+
+  <!-- arrow -->
+  <path d="M 320 150 L 356 150 M 348 143 L 356 150 L 348 157" fill="none" stroke="#6b7089" stroke-width="2"/>
+
+  <!-- Pass 2 -->
+  <g transform="translate(480 150)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" text-anchor="middle">
+    <circle r="9" fill="#e0af68"/>
+    <text x="0" y="-24" font-size="13" fill="#e0af68" font-weight="700">PASS 2 · §4.7.1</text>
+    <text x="0" y="36" font-size="14" fill="#c0caf5">Different model,</text>
+    <text x="0" y="58" font-size="14" fill="#c0caf5">same shortfall — root</text>
+    <text x="0" y="80" font-size="14" fill="#f2f0ea" font-weight="600">cause diagnosed</text>
+  </g>
+
+  <path d="M 680 150 L 716 150 M 708 143 L 716 150 L 708 157" fill="none" stroke="#6b7089" stroke-width="2"/>
+
+  <!-- Pass 3 -->
+  <g transform="translate(880 150)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" text-anchor="middle">
+    <circle r="10" fill="#9ece6a"/>
+    <text x="0" y="-24" font-size="13" fill="#9ece6a" font-weight="700">PASS 3 · §4.7.2</text>
+    <text x="0" y="36" font-size="15" fill="#f2f0ea" font-weight="700">180/180 vs 176/180</text>
+    <text x="0" y="58" font-size="14" fill="#c0caf5">at parity latency —</text>
+    <text x="0" y="80" font-size="13" fill="#6b7089">CIs still overlap, stated</text>
+  </g>
+
+  <text x="600" y="260" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13" fill="#6b7089">Reproduce any of it: docs/BENCHMARKING.md — model is a runtime flag, not hardcoded.</text>
+</svg>
