@@ -263,3 +263,174 @@ def test_consensus_engine_llm_score_parsing():
     score, reason = engine._parse_llm_score('{"reason": "looks fine"}')
     assert score == 0.0
 
+
+# --- July 2026 topic-page batch, papers-of-papers research: items 1-4 ---
+
+def test_weighted_average_defaults_to_flat_mean():
+    from self_governance.consensus import _weighted_average
+
+    assert _weighted_average({"a": 6.0, "b": 8.0}) == 7.0
+    assert _weighted_average({"a": 6.0, "b": 8.0}, weights={}) == 7.0
+
+
+def test_weighted_average_applies_calibration_weights():
+    from self_governance.consensus import _weighted_average
+
+    # 'b' weighted 3x -- pulls the average toward its score.
+    result = _weighted_average({"a": 6.0, "b": 8.0}, weights={"b": 3.0})
+    assert result == pytest.approx((6.0 * 1.0 + 8.0 * 3.0) / 4.0)
+
+
+def test_weighted_average_missing_agent_defaults_to_weight_one():
+    from self_governance.consensus import _weighted_average
+
+    result = _weighted_average({"a": 6.0, "b": 8.0}, weights={"a": 2.0})
+    assert result == pytest.approx((6.0 * 2.0 + 8.0 * 1.0) / 3.0)
+
+
+def test_detect_groupthink_flags_unanimous_near_identical_justifications():
+    from self_governance.consensus import _detect_groupthink
+
+    justifications = {
+        "agent_A": {"justification": "strong fit for backend concurrency and retries"},
+        "agent_B": {"justification": "strong fit for backend concurrency retries"},
+    }
+    assert _detect_groupthink(justifications, ["agent_A", "agent_B"]) is True
+
+
+def test_detect_groupthink_not_flagged_for_distinct_reasoning():
+    from self_governance.consensus import _detect_groupthink
+
+    justifications = {
+        "agent_A": {"justification": "strong fit for backend concurrency"},
+        "agent_B": {"justification": "handles security review well under pressure"},
+    }
+    assert _detect_groupthink(justifications, ["agent_A", "agent_B"]) is False
+
+
+def test_detect_groupthink_not_flagged_for_single_approved_agent():
+    from self_governance.consensus import _detect_groupthink
+
+    justifications = {"agent_A": {"justification": "strong fit"}}
+    assert _detect_groupthink(justifications, ["agent_A"]) is False
+
+
+def test_consensus_result_flags_groupthink_on_unanimous_near_identical_round(monkeypatch):
+    """End-to-end: a round where every approved agent's justification is
+    near-identical sets ConsensusResult.groupthink_suspected."""
+    from unittest.mock import MagicMock
+    from self_governance.consensus import ConsensusEngine
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_adapter = MagicMock(spec=GeminiExecutionAdapter)
+    mock_adapter.prompt_tokens = 0
+    mock_adapter.completion_tokens = 0
+    mock_adapter.is_reasoning_model.return_value = False
+    mock_adapter._call_gemini_and_track.side_effect = [
+        '{"score": 9.0, "reason": "strong fit for backend concurrency and retries"}',
+        '{"score": 9.0, "reason": "strong fit for backend concurrency retries"}',
+    ]
+
+    engine = ConsensusEngine(
+        initial_roster=["agent_A", "agent_B"], B=1, target_tau=8.0, adapter=mock_adapter,
+    )
+    result = engine.run()
+
+    assert result.approved_roster == ["agent_A", "agent_B"]
+    assert result.groupthink_suspected is True
+
+
+def test_anti_sycophancy_omits_numeric_score_from_peer_feedback(monkeypatch):
+    """Anti-sycophancy (Sharma et al. 2023): the peer-feedback shown before
+    a later round must not display the earlier round's numeric score when
+    anti_sycophancy=True, to avoid anchoring later votes on the visible
+    prior consensus number."""
+    from unittest.mock import MagicMock
+    from self_governance.consensus import ConsensusEngine
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_adapter = MagicMock(spec=GeminiExecutionAdapter)
+    mock_adapter.prompt_tokens = 0
+    mock_adapter.completion_tokens = 0
+    mock_adapter.is_reasoning_model.return_value = False
+    mock_adapter._call_gemini_and_track.side_effect = [
+        '{"score": 5.0, "reason": "round1 reasoning"}',
+        '{"score": 9.0, "reason": "round2 reasoning"}',
+    ]
+
+    engine = ConsensusEngine(
+        initial_roster=["agent_A"], B=1, target_tau=9.0, adapter=mock_adapter,
+        anti_sycophancy=True,
+    )
+    engine.run()
+
+    assert mock_adapter._call_gemini_and_track.call_count == 2
+    round2_prompt = mock_adapter._call_gemini_and_track.call_args_list[1][0][0]
+    assert "was rated" not in round2_prompt
+    assert "round1 reasoning" in round2_prompt
+
+
+def test_debate_phase_triggers_on_contested_vote_and_targets_dissenter(monkeypatch):
+    """Multiagent debate (Du et al. 2023): a contested round (avg score
+    within debate_margin of tau) triggers one extra round that puts the
+    strongest dissenting justification directly to every agent, and that
+    round's scores decide the outcome."""
+    from unittest.mock import MagicMock
+    from self_governance.consensus import ConsensusEngine
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_adapter = MagicMock(spec=GeminiExecutionAdapter)
+    mock_adapter.prompt_tokens = 0
+    mock_adapter.completion_tokens = 0
+    mock_adapter.is_reasoning_model.return_value = False
+    mock_adapter._call_gemini_and_track.side_effect = [
+        '{"score": 7.0, "reason": "agent_A round1 objection"}',
+        '{"score": 8.0, "reason": "agent_bad round1"}',
+        '{"score": 8.5, "reason": "agent_A debate"}',
+        '{"score": 8.5, "reason": "agent_bad debate"}',
+    ]
+
+    engine = ConsensusEngine(
+        initial_roster=["agent_A", "agent_bad"], B=5, target_tau=8.0, adapter=mock_adapter,
+        enable_debate=True, debate_margin=1.0,
+    )
+    result = engine.run()
+
+    assert mock_adapter._call_gemini_and_track.call_count == 4
+    debate_prompt = mock_adapter._call_gemini_and_track.call_args_list[2][0][0]
+    assert "Debate round" in debate_prompt
+    assert "agent_A round1 objection" in debate_prompt
+    assert result.approved_roster == ["agent_A", "agent_bad"]
+
+
+def test_debate_phase_off_by_default_does_not_trigger(monkeypatch):
+    from unittest.mock import MagicMock
+    from self_governance.consensus import ConsensusEngine
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_adapter = MagicMock(spec=GeminiExecutionAdapter)
+    mock_adapter.prompt_tokens = 0
+    mock_adapter.completion_tokens = 0
+    mock_adapter.is_reasoning_model.return_value = False
+    mock_adapter._call_gemini_and_track.side_effect = [
+        '{"score": 7.0, "reason": "agent_A round1"}',
+        '{"score": 8.0, "reason": "agent_bad round1"}',
+    ]
+
+    engine = ConsensusEngine(
+        # avg (7.0+8.0)/2 == 7.5 == target_tau: passes on round 1, so a 3rd
+        # call would only happen if a debate phase fired despite
+        # enable_debate defaulting to False.
+        initial_roster=["agent_A", "agent_bad"], B=1, target_tau=7.5, adapter=mock_adapter,
+    )
+    result = engine.run()
+
+    # Only agent_bad clears tau individually (7.0 < 7.5 < 8.0); the point of
+    # this test is the call_count, confirming no debate round fired.
+    assert result.approved_roster == ["agent_bad"]
+    assert mock_adapter._call_gemini_and_track.call_count == 2
+

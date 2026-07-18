@@ -246,6 +246,7 @@ class GraphMemoryEngine:
         flaw_category: "str | None" = None,
         critique: "str | None" = None,
         evidence_tag: "str | None" = None,
+        blamed_step: "str | None" = None,
     ) -> str:
         """Records an outcome for a named repair strategy (Phase D3, extended).
 
@@ -273,6 +274,19 @@ class GraphMemoryEngine:
                 FACT-tagged one; omitting the tag gives full confidence
                 (identical to behavior before this parameter existed).
                 Anything outside the fixed set is normalized to "UNKNOWN".
+            blamed_step: Optional credit-attribution note (simplified,
+                single-attribution version of ShapleyFlow's per-component
+                credit idea, July 2026 topic-page batch): which one of
+                `steps` actually caused this outcome, so a caller can later
+                see which step in a multi-step strategy is carrying its
+                performance instead of crediting/blaming the whole strategy
+                uniformly. Not a true Shapley value (that needs marginal
+                contribution across step subsets, which would require
+                running ablated variants of the strategy -- out of scope
+                here); this only tallies a single human/agent-asserted
+                blamed step per outcome. Need not be a member of `steps`
+                (steps can change between calls; the tally just accumulates
+                by string).
 
         Returns:
             The procedure node ID.
@@ -287,7 +301,7 @@ class GraphMemoryEngine:
                 props = {
                     "name": name, "trigger_pattern": trigger_pattern, "steps": steps,
                     "success_count": 0, "failure_count": 0, "ema_success_score": None,
-                    "flaw_category_counts": {}, "critiques": [],
+                    "flaw_category_counts": {}, "critiques": [], "step_credit": {},
                 }
 
             props["trigger_pattern"] = trigger_pattern
@@ -309,6 +323,13 @@ class GraphMemoryEngine:
             flaw_counts = props.get("flaw_category_counts", {})
             flaw_counts[category] = flaw_counts.get(category, 0) + 1
             props["flaw_category_counts"] = flaw_counts
+
+            if blamed_step:
+                step_credit = props.get("step_credit", {})
+                counts = step_credit.get(blamed_step, {"success": 0, "failure": 0})
+                counts["success" if passed else "failure"] += 1
+                step_credit[blamed_step] = counts
+                props["step_credit"] = step_credit
 
             if critique:
                 critiques = props.get("critiques", [])
@@ -376,7 +397,10 @@ class GraphMemoryEngine:
             {"name": str, "steps": List[str], "success_count": int,
              "failure_count": int, "success_rate": float,
              "ema_success_score": float, "flaw_category_counts": dict,
-             "critiques": List[str]} for the chosen match, or None if
+             "critiques": List[str], "step_credit": dict} for the chosen
+            match (step_credit maps a blamed step string to its own
+            {"success": int, "failure": int} tally -- see
+            record_procedure_outcome's blamed_step param), or None if
             nothing matches above the threshold, every match has zero
             recorded attempts, or (with flaw_category set) nothing has that
             category.
@@ -423,6 +447,7 @@ class GraphMemoryEngine:
                     "ema_success_score": ema_score,
                     "flaw_category_counts": flaw_counts,
                     "critiques": props.get("critiques", []),
+                    "step_credit": props.get("step_credit", {}),
                     "_rank_key": (ema_score, total),
                 })
 

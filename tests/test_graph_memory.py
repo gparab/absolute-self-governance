@@ -643,3 +643,48 @@ def test_critique_without_evidence_tag_is_stored_unprefixed():
     result = engine.recommend_procedure("boundary condition test failure")
 
     assert result["critiques"] == ["worked as expected"]
+
+
+# --- Step-level credit attribution (ShapleyFlow-inspired, simplified single-
+# attribution tally; July 2026 topic-page batch, papers-of-papers research) ---
+
+def test_blamed_step_credit_accumulates_success_and_failure_counts():
+    tenant = "test_tenant_step_credit"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure",
+        steps=["lead with QA", "reuse failing test"], passed=True,
+        blamed_step="reuse failing test",
+    )
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure",
+        steps=["lead with QA", "reuse failing test"], passed=False,
+        blamed_step="lead with QA",
+    )
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure",
+        steps=["lead with QA", "reuse failing test"], passed=True,
+        blamed_step="reuse failing test",
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["step_credit"] == {
+        "reuse failing test": {"success": 2, "failure": 0},
+        "lead with QA": {"success": 0, "failure": 1},
+    }
+
+
+def test_step_credit_defaults_to_empty_when_never_blamed():
+    tenant = "test_tenant_step_credit_empty"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure",
+        steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["step_credit"] == {}

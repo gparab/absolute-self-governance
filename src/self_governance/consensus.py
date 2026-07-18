@@ -9,6 +9,8 @@ import os
 import random
 import math
 import json
+import re
+import itertools
 import time as _time
 import logging
 from dataclasses import dataclass
@@ -25,6 +27,47 @@ logger = logging.getLogger("self_governance.consensus")
 # Justifications are stored in plaintext. The previous XOR/base64 "encryption"
 # was obfuscation with a hardcoded key — false security worse than none.
 
+_GROUPTHINK_JACCARD_THRESHOLD = 0.6
+
+
+def _tokenize(text: str) -> set:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _detect_groupthink(justifications: dict, approved_agents: List[str]) -> bool:
+    """Groupthink-suspicion heuristic (Janis 1972 taxonomy, July 2026
+    topic-page batch): unanimous approval alone doesn't distinguish genuine
+    independent agreement from agents converging on the same shallow
+    reasoning. Flags the round when every approved agent's justification is
+    lexically near-identical to every other's (mean pairwise Jaccard above
+    threshold) AND approval was unanimous -- informational only, doesn't
+    change the vote outcome.
+    """
+    if len(approved_agents) < 2:
+        return False
+    texts = [str(justifications[a]["justification"]) for a in approved_agents]
+    token_sets = [_tokenize(t) for t in texts]
+    if any(not ts for ts in token_sets):
+        return False
+    pairs = list(itertools.combinations(range(len(token_sets)), 2))
+    similarities = [
+        len(token_sets[i] & token_sets[j]) / len(token_sets[i] | token_sets[j])
+        for i, j in pairs
+    ]
+    return (sum(similarities) / len(similarities)) >= _GROUPTHINK_JACCARD_THRESHOLD
+
+
+def _weighted_average(scores: dict, weights: Optional[dict] = None) -> float:
+    """Collective-intelligence-factor weighting (Woolley et al. 2010, July
+    2026 topic-page batch): a flat mean when weights is None/empty (weight
+    1.0 for every agent), or a weighted mean when the caller supplies
+    per-agent weights (e.g. derived from historical calibration) -- an
+    agent missing from weights still defaults to 1.0.
+    """
+    weights = weights or {}
+    total_weight = sum(weights.get(a, 1.0) for a in scores)
+    return sum(scores[a] * weights.get(a, 1.0) for a in scores) / total_weight
+
 
 @dataclass(frozen=True)
 class ConsensusResult:
@@ -36,12 +79,16 @@ class ConsensusResult:
         final_threshold: The consensus score threshold value when consensus finished.
         prompt_tokens: Cumulative number of prompt tokens used in consensus.
         completion_tokens: Cumulative number of completion tokens generated in consensus.
+        groupthink_suspected: True if the winning round looked like suspiciously
+            uniform agreement (see _detect_groupthink) rather than independent
+            judgment converging -- an informational flag, not a rejection.
     """
     approved_roster: List[str]
     final_temperature: float
     final_threshold: float
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    groupthink_suspected: bool = False
 
     def __iter__(self):
         return iter((self.approved_roster, self.final_temperature, self.final_threshold))
@@ -74,6 +121,10 @@ class ConsensusEngine:
         model: Optional[str] = None,
         max_seconds: float = 600.0,
         config_path: Optional[str] = None,
+        anti_sycophancy: bool = False,
+        calibration_weights: Optional[dict] = None,
+        enable_debate: bool = False,
+        debate_margin: float = 1.0,
     ):
         """Initializes the ConsensusEngine.
 
@@ -91,6 +142,28 @@ class ConsensusEngine:
             model: Optional LLM name to override.
             max_seconds: Max seconds to run before deadline termination.
             config_path: Optional path to YAML configuration.
+            anti_sycophancy: If True, peer feedback shown to each voter omits
+                other agents' numeric scores (justification text only), to
+                reduce anchoring toward the visible prior-round consensus
+                (Sharma et al. 2023 sycophancy research, July 2026 topic-page
+                batch). Off by default -- identical to prior behavior.
+            calibration_weights: Optional per-agent weight (default 1.0 for
+                any agent not listed) applied to that agent's score when
+                computing the round's average (Woolley et al. 2010 collective-
+                intelligence-factor research, July 2026 topic-page batch):
+                a more historically-calibrated voter's score counts for more
+                than an uncalibrated one's, instead of a flat mean. Callers
+                are responsible for deriving weights (e.g. from procedural-
+                memory track record); omitting this preserves the flat mean.
+            enable_debate: If True, a round whose average score lands within
+                debate_margin of tau triggers one extra debate round before
+                the pass/fail decision: every agent is shown the single
+                strongest dissenting justification and asked to directly
+                address it, and that round's scores replace the contested
+                round's (Du et al. 2023 multiagent-debate research, July
+                2026 topic-page batch). Off by default.
+            debate_margin: How close a round's average score must be to tau
+                to count as "contested" and trigger the debate round above.
 
         Raises:
             TypeError: If initial_roster is not a list of strings, or B, initial_temp,
@@ -133,6 +206,10 @@ class ConsensusEngine:
         self.T_max = T_max
         self.model = model
         self.max_seconds = max_seconds
+        self.anti_sycophancy = anti_sycophancy
+        self.calibration_weights = calibration_weights or {}
+        self.enable_debate = enable_debate
+        self.debate_margin = debate_margin
 
         # Annealing jitter, not cryptography: reproducibility via seed matters,
         # unpredictability does not.
@@ -394,14 +471,29 @@ class ConsensusEngine:
                 new_justifications = {}
                 peer_feedback = ""
                 if self.justifications:
-                    peer_feedback = (
-                        "Here is the peer feedback from the previous round of deliberation:\n"
-                        + "\n".join(
-                            f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
-                            for a, info in self.justifications.items()
+                    if self.anti_sycophancy:
+                        # Anti-sycophancy (Sharma et al. 2023, July 2026 topic-page
+                        # batch): omit the visible numeric score so a voter can't
+                        # anchor toward the prior round's consensus number, while
+                        # still seeing peers' reasoning.
+                        peer_feedback = (
+                            "Here is the peer feedback from the previous round of deliberation "
+                            "(reasoning only -- form your own independent score):\n"
+                            + "\n".join(
+                                f"- '{a}' peer justification: {info['justification']}"
+                                for a, info in self.justifications.items()
+                            )
+                            + "\n\n"
                         )
-                        + "\n\n"
-                    )
+                    else:
+                        peer_feedback = (
+                            "Here is the peer feedback from the previous round of deliberation:\n"
+                            + "\n".join(
+                                f"- '{a}' was rated {info['score']}. Peer justification: {info['justification']}"
+                                for a, info in self.justifications.items()
+                            )
+                            + "\n\n"
+                        )
 
                 peer_feedback = self._invoke_advisor(peer_feedback)
 
@@ -440,8 +532,36 @@ class ConsensusEngine:
 
                 # Fall back to all scores if every vote was gated out
                 effective_scores = gated_scores if gated_scores else self.scores
-                avg_score = sum(effective_scores.values()) / len(effective_scores)
+                avg_score = _weighted_average(effective_scores, self.calibration_weights)
                 logger.info("Consensus iteration %d average score: %.2f", self.iteration, avg_score)
+
+                # Debate phase for contested votes (Du et al. 2023 multiagent-
+                # debate research, July 2026 topic-page batch): a round that
+                # lands close to tau gets one extra round where every agent
+                # must directly address the strongest dissenting justification,
+                # instead of finalizing on the first pass's numbers.
+                if (
+                    self.enable_debate
+                    and len(effective_scores) > 1
+                    and abs(avg_score - self.tau) <= self.debate_margin
+                ):
+                    dissenter = min(effective_scores, key=lambda a: effective_scores[a])
+                    debate_feedback = (
+                        "Debate round (contested vote): the strongest objection came "
+                        f"from '{dissenter}': \"{new_justifications[dissenter]['justification']}\"\n"
+                        "Directly address this specific objection in your revised assessment.\n\n"
+                    )
+                    debate_scores: dict[str, float] = {}
+                    debate_justifications: dict = {}
+                    for agent in self.initial_roster:
+                        score, justification = self._score_agent(agent, debate_feedback)
+                        debate_scores[agent] = score
+                        debate_justifications[agent] = {"score": score, "justification": justification}
+                    self.scores = debate_scores
+                    self.justifications = debate_justifications
+                    effective_scores = debate_scores
+                    avg_score = _weighted_average(effective_scores, self.calibration_weights)
+                    logger.info("Debate round revised average score to %.2f", avg_score)
 
                 if avg_score >= self.tau:
                     approved = [agent for agent, score in effective_scores.items() if score >= self.tau]
@@ -452,6 +572,7 @@ class ConsensusEngine:
                         final_threshold=self.tau,
                         prompt_tokens=self.adapter.prompt_tokens if self.adapter is not None else 0,
                         completion_tokens=self.adapter.completion_tokens if self.adapter is not None else 0,
+                        groupthink_suspected=_detect_groupthink(self.justifications, approved),
                     )
 
                 if self.iteration > 1000:

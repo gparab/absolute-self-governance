@@ -9,14 +9,24 @@ don't apply here. Four categories do: instruction-override, authority-claim,
 boundary-manipulation (forging ASG's own file formats), and encoding
 evasion.
 
-The only currently-real untrusted-input-reaches-prompt path in this repo is
-the God's Eye interrupt (interrupt.md): its content is interpolated
-directly into PipelineArtifact.next_context, which the next succession's
-prompt reads verbatim (nudger.py's process_handoff). This module quarantines
-that path; it is not wired into the webhook issue title/body path because
-that content currently only feeds keyword-based staffing heuristics
+The God's Eye interrupt (interrupt.md) is one untrusted-input-reaches-prompt
+path in this repo: its content is interpolated directly into
+PipelineArtifact.next_context, which the next succession's prompt reads
+verbatim (nudger.py's process_handoff). This module quarantines that path;
+it is not wired into the webhook issue title/body path because that content
+currently only feeds keyword-based staffing heuristics
 (_analyze_issue_complexity), never a generation prompt -- wiring it in
 before there's a real path would be speculative.
+
+A second, indirect path (Greshake et al. 2023's category, distinct from the
+direct instruction-override patterns above -- the injected text arrives via
+a tool's output, not typed directly at the model): benchmark.py's ASG mode
+feeds a failed attempt's pytest/subprocess output back into the next
+attempt's generation prompt (`previous_attempt_failed_tests`). That output
+is produced by executing the previous attempt's generated code, so it can
+contain adversarial text a malicious or compromised generation deliberately
+printed to influence the next round -- benchmark.py quarantines it through
+this same `sanitize()` before it reaches a prompt.
 """
 
 import base64
