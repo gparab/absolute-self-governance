@@ -6,6 +6,7 @@ import threading
 from typing import Optional, Any
 from self_governance.nudger import ContinuousNudger
 from self_governance.models import SessionStatus
+from self_governance.policy import ActionSource, PolicyDenied, RiskLevel
 
 
 class ExceptionRaisingNudger(ContinuousNudger):
@@ -235,6 +236,50 @@ def test_nudger_propagates_critical_exceptions(tmp_path):
 
         with pytest.raises(KeyboardInterrupt):
             nudger.watch_handoff()
+
+
+def test_policed_run_executes_allowed_action(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    # tmp_path isn't a git repo, so this legitimately exits non-zero -- the
+    # point is that the policy engine allowed it through to actually run.
+    result = nudger._policed_run("git_status", ["git", "status"], str(tmp_path), capture_output=True)
+
+    assert result.returncode != 0
+    assert b"not a git repository" in result.stderr
+
+
+def test_policed_run_raises_and_emits_event_on_denied_force_push(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    with pytest.raises(PolicyDenied) as exc_info:
+        nudger._policed_run("git_push_force", ["git", "push", "--force", "origin", "master"], str(tmp_path))
+
+    assert exc_info.value.decision.rule_name == "forbidden_command"
+
+    events_path = tmp_path / "monitoring_events.ndjson"
+    assert events_path.exists()
+    events = events_path.read_text()
+    assert "policy_denied" in events
+    assert "forbidden_command" in events
+
+
+def test_policed_run_denies_dangerous_action_from_external_source(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    with pytest.raises(PolicyDenied) as exc_info:
+        nudger._policed_run(
+            "git_merge",
+            ["git", "merge", "active_task"],
+            str(tmp_path),
+            source=ActionSource.EXTERNAL,
+            risk_level=RiskLevel.DANGEROUS,
+        )
+
+    assert exc_info.value.decision.rule_name == "authority_hierarchy"
 
 
 def test_gods_eye_interrupt_benign_content_is_quarantine_wrapped_not_flagged(tmp_path):

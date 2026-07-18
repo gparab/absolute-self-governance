@@ -43,7 +43,7 @@ a constraint-only memory model, and a single-process watchdog.
 
 ---
 
-## Phase D1 — Policy engine for nudger.py
+## Phase D1 — Policy engine for nudger.py — built
 
 **Problem.** Every dangerous operation in `nudger.py` (git commands,
 subprocess exec, writes to `handoff.md`/config/worktrees) is currently
@@ -78,17 +78,36 @@ runs against *generated code*, not against ASG's own actions.
   suppressions become "this specific class of action is allowlisted by a
   tested rule," not "a human said so."
 
-**Deliverables:** `policy.py`, `policy_rules/` (path_protection.py,
-command_safety.py, authority.py, rate_limits.py), `tests/test_policy.py`
-with one test file per rule category (mirrors automaton's test layout),
-nudger.py's Ship Phase subprocess calls migrated to go through it.
+**Delivered:** `policy.py` (`PolicyEngine`, `PolicyAction`, `PolicyDecision`,
+`PolicyDenied`, priority-ordered first-deny-wins evaluation) and
+`policy_rules/` with 4 modules matching the design: `authority.py`
+(`AuthorityRule` — denies DANGEROUS/FORBIDDEN actions from non-nudger
+sources), `command_safety.py` (`ForbiddenCommandRule`,
+`ProtectedBranchDeletionRule`, `AutomationSourceGuardRule` — only the
+nudger's own trusted path may run mutating git subcommands),
+`path_protection.py` (`ProtectedFileWriteRule`,
+`WorktreePathTraversalRule`), `rate_limits.py`
+(`GitMutationRateLimitRule`, stateful, per-process ceiling). 7 rules total
+via `default_rule_set()`.
 
-**Success criteria:** every subprocess/git call in the Ship Phase denies
-under a synthetic malicious handoff (e.g., forced-push, path traversal in
-worktree name); gates stay green; policy denials show up in
-`monitoring_events.ndjson` with enough context to audit after the fact.
+A new `ContinuousNudger._policed_run()` helper wraps every Ship Phase
+`subprocess.run` call (worktree create/prune, pytest, security-audit,
+git add/commit/merge/worktree-remove/branch-delete, retro export) --
+all 11 call sites migrated off bare `# nosec`-suppressed calls. A deny
+raises `PolicyDenied` (caught by the Ship Phase's existing broad
+exception handler, same as any other subprocess failure) and always
+emits a `policy_denied` event first, so the audit trail exists even for
+callers that don't otherwise log it.
 
-**Cost:** M.
+**Verified:** `tests/test_policy.py` (24 tests, 100% coverage on
+`policy.py` and all of `policy_rules/`), 3 new `nudger.py` tests
+covering the deny path end-to-end (`_policed_run` allows a legitimate
+action through, denies a synthetic force-push with an audited event,
+denies a DANGEROUS action from `ActionSource.EXTERNAL`). Full gate
+suite green (491 passed, 93.83% branch coverage, ruff/mypy/bandit
+clean), run twice via the exact CI commands before commit.
+
+**Cost:** M (as estimated).
 
 ---
 

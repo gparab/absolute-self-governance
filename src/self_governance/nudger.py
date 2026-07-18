@@ -23,6 +23,8 @@ from self_governance.anti_drift import LoopDetector, self_critique
 from self_governance.graph_memory import GraphMemoryEngine
 from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
+from self_governance.policy import ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
+from self_governance.policy_rules import default_rule_set
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -350,6 +352,35 @@ class ContinuousNudger:
         self.loop_detector = LoopDetector()
         self._stop_event = threading.Event()
         self.hook_executor = ResilientHookExecutor(self.working_directory)
+        self.policy_engine = PolicyEngine(rules=default_rule_set())
+
+    def _policed_run(
+        self,
+        name: str,
+        argv: list,
+        cwd: str,
+        risk_level: RiskLevel = RiskLevel.CAUTION,
+        source: ActionSource = ActionSource.NUDGER,
+        path: Optional[str] = None,
+        **kwargs,
+    ):
+        """Runs a subprocess call through the policy engine first (Phase D1).
+
+        Replaces the bare `# nosec`-suppressed subprocess.run call sites in
+        the Ship Phase: every mutating git/pytest action now passes through
+        an auditable, tested gate instead of a one-time human assertion.
+        Raises PolicyDenied if the engine denies the action; the deny is
+        also emitted as an event so it shows up in the audit trail even
+        when the caller doesn't otherwise log it.
+        """
+        action = PolicyAction(name=name, argv=argv, path=path, source=source, risk_level=risk_level)
+        decision = self.policy_engine.check(action)
+        if not decision.allowed:
+            _emit_event(self.working_directory, "policy_denied", {
+                "action": name, "argv": argv, "rule": decision.rule_name, "reason": decision.reason,
+            })
+            raise PolicyDenied(decision)
+        return subprocess.run(argv, cwd=cwd, **kwargs)  # nosec B603 B607 -- gated above by PolicyEngine
 
     def stop(self) -> None:
         """Stops the handoff monitoring loop and executes the Stop hook."""
@@ -548,11 +579,9 @@ class ContinuousNudger:
                     worktree_path = os.path.join(self.working_directory, ".planning", "worktrees", "active_task")
                     if not os.path.exists(worktree_path):
                         os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
-                        # Static git argv, no shell, operator-owned cwd; `git`
-                        # via PATH is the portable convention (B607).
-                        subprocess.run(["git", "branch", "-D", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
-                        subprocess.run(["git", "worktree", "prune"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
-                        subprocess.run(["git", "worktree", "add", "-b", "active_task", worktree_path], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                        self._policed_run("git_branch_delete_scratch", ["git", "branch", "-D", "active_task"], self.working_directory, capture_output=True)
+                        self._policed_run("git_worktree_prune", ["git", "worktree", "prune"], self.working_directory, capture_output=True)
+                        self._policed_run("git_worktree_add", ["git", "worktree", "add", "-b", "active_task", worktree_path], self.working_directory, path=worktree_path, capture_output=True)
                         _emit_event(self.working_directory, "worktree", {"message": f"Created execution worktree at {worktree_path}"})
 
                     if not self._execute_succession_safely(content):
@@ -582,10 +611,12 @@ class ContinuousNudger:
                             worktree_path = os.path.join(self.working_directory, ".planning", "worktrees", "active_task")
                             exec_dir = worktree_path if os.path.exists(worktree_path) else self.working_directory
                             
-                            # Static argv, no shell; handoff_file comes from the
-                            # operator's own config, not remote input.
-                            pytest_res = subprocess.run(["uv", "run", "pytest", "-q"], cwd=exec_dir, capture_output=True, text=True)  # nosec B603 B607
-                            audit_res = subprocess.run(["uv", "run", "self-governance", "security-audit", self.config.handoff_file], cwd=exec_dir, capture_output=True, text=True)  # nosec B603 B607
+                            pytest_res = self._policed_run("run_pytest", ["uv", "run", "pytest", "-q"], exec_dir, capture_output=True, text=True)
+                            audit_res = self._policed_run(
+                                "run_security_audit",
+                                ["uv", "run", "self-governance", "security-audit", self.config.handoff_file],
+                                exec_dir, capture_output=True, text=True,
+                            )
                             
                             if pytest_res.returncode != 0 or audit_res.returncode != 0:
                                 logger.error("Verify phase failed. Pytest exit: %d, Audit exit: %d", pytest_res.returncode, audit_res.returncode)
@@ -626,15 +657,18 @@ class ContinuousNudger:
                                 _emit_event(self.working_directory, "ship", {"message": "Running Ship Phase: retro generation and worktree merge"})
                                 
                                 # If we used a worktree, commit and merge it back to main.
-                                # Static git/uv argv, no shell, operator-owned cwd (B603/B607).
                                 if os.path.exists(worktree_path):
-                                    subprocess.run(["git", "add", "."], cwd=worktree_path, capture_output=True)  # nosec B603 B607
-                                    subprocess.run(["git", "commit", "-m", "ASG Ship Phase: Auto-commit"], cwd=worktree_path, capture_output=True)  # nosec B603 B607
-                                    subprocess.run(["git", "merge", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
-                                    subprocess.run(["git", "worktree", "remove", "-f", worktree_path], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
-                                    subprocess.run(["git", "branch", "-d", "active_task"], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                                    self._policed_run("git_add", ["git", "add", "."], worktree_path, capture_output=True)
+                                    self._policed_run("git_commit", ["git", "commit", "-m", "ASG Ship Phase: Auto-commit"], worktree_path, capture_output=True)
+                                    self._policed_run("git_merge", ["git", "merge", "active_task"], self.working_directory, capture_output=True)
+                                    self._policed_run("git_worktree_remove", ["git", "worktree", "remove", "-f", worktree_path], self.working_directory, path=worktree_path, capture_output=True)
+                                    self._policed_run("git_branch_delete_scratch", ["git", "branch", "-d", "active_task"], self.working_directory, capture_output=True)
 
-                                subprocess.run(["uv", "run", "self-governance", "retro", "--export", os.path.join(".planning", "RETRO.md")], cwd=self.working_directory, capture_output=True)  # nosec B603 B607
+                                self._policed_run(
+                                    "export_retro",
+                                    ["uv", "run", "self-governance", "retro", "--export", os.path.join(".planning", "RETRO.md")],
+                                    self.working_directory, capture_output=True,
+                                )
                         except Exception as e:
                             logger.error("Error running Verify/Ship phases: %s", e)
 
