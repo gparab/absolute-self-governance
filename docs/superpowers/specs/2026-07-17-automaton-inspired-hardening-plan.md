@@ -234,7 +234,7 @@ via the exact CI commands before commit.
 
 ---
 
-## Phase D4 — Metrics + alerting on top of existing telemetry
+## Phase D4 — Metrics + alerting on top of existing telemetry — built
 
 **Problem.** ASG has OTel spans (Phase B3) and `analyze_sweep.py`/
 `check_regression.py`, but nothing proactive — a regression or a
@@ -257,13 +257,47 @@ small, well-scoped pattern that closes exactly this gap.
   delivery channel, this repo doesn't have one and shouldn't invent a
   notification integration speculatively.
 
-**Deliverables:** `alerts.py`, `tests/test_alerts.py`, wired into
-`nudger.py`'s existing event emission and `telemetry/analyze_sweep.py`'s
-output.
+**Delivered:** `alerts.py` with a generic `AlertEngine`/`AlertRule` pair
+operating on a plain context dict (deliberately not a unified event
+schema -- nudger's NDJSON stream, the memory-recall harness's check
+results, and any future producer have different shapes, and forcing one
+schema across three small producers would be more machinery than needed).
+Three rule types: `ConsecutiveFailureRule`, `RateThresholdRule`,
+`HarnessRegressionRule`, assembled by `default_alert_rules()` into the 3
+designed rules -- `consecutive_verify_failures` (nudger's own verify-phase
+streak, generalizing the benchmark harness's `sandbox_error` circuit
+breaker concept rather than reusing that exact label, since nudger events
+don't carry the benchmark's failure taxonomy), `policy_deny_rate_spike`
+(Phase D1), `memory_recall_regression` (Phase C2a, now 9 checks not 7 --
+grew during D3).
 
-**Success criteria:** a synthetic consecutive-sandbox_error checkpoint and
-a synthetic memory-recall-harness failure each fire their rule exactly
-once (not per-occurrence, respecting cooldown); gates stay green.
+Wired into `nudger.py`: three new counters
+(`_consecutive_verify_failed`, `_policy_checked_count`,
+`_policy_denied_count`) updated at the verify-phase branch and inside
+`_policed_run`, with `_check_alerts()` called after each update and firing
+an `"alert"` event via the existing `_emit_event` mechanism -- no new
+delivery channel. Wired into `telemetry/eval_memory_recall.py`'s `main()`:
+on any check failure, the failed check names run through the same
+`AlertEngine` and print an `ALERT [rule_name]: ...` line before the
+existing FAIL summary, replacing the ad hoc print with an auditable rule
+firing.
+
+Scoped down from the original plan on one point: **not** wired into
+`analyze_sweep.py`/benchmark checkpoints -- on inspection, the benchmark
+harness already has its own circuit breaker (Phase A) for the consecutive-
+sandbox_error case, so adding a second, separate alerting layer over the
+same data would be redundant rather than additive. The three rules that
+are wired in cover the three places nothing proactive existed yet.
+
+**Verified:** `tests/test_alerts.py` (16 tests, 100% coverage), 3 new
+`nudger.py` tests (alert fires at threshold, doesn't fire below it,
+policy-deny-rate-spike fires end-to-end through `_policed_run`), 1 new
+`eval_memory_recall` test (`main()` fires the regression alert and exits
+1 on a synthetic failure). Full gate suite green (520 passed, 93.98%
+branch coverage, ruff/mypy/bandit clean), run twice via the exact CI
+commands before commit.
+
+**Cost:** S (as estimated).
 
 **Cost:** S.
 

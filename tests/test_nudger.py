@@ -298,6 +298,46 @@ def test_gods_eye_interrupt_benign_content_is_quarantine_wrapped_not_flagged(tmp
     assert not (tmp_path / "interrupt.md").exists()
 
 
+def test_check_alerts_fires_consecutive_verify_failure_alert(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+    nudger._consecutive_verify_failed = 3
+
+    nudger._check_alerts()
+
+    events = (tmp_path / "monitoring_events.ndjson").read_text()
+    assert '"type": "alert"' in events
+    assert "consecutive_verify_failures" in events
+
+
+def test_check_alerts_does_not_fire_below_threshold(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+    nudger._consecutive_verify_failed = 1
+
+    nudger._check_alerts()
+
+    events_path = tmp_path / "monitoring_events.ndjson"
+    assert not events_path.exists() or '"type": "alert"' not in events_path.read_text()
+
+
+def test_policed_run_deny_updates_counters_and_can_fire_policy_deny_alert(tmp_path):
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    for _ in range(6):
+        try:
+            nudger._policed_run("git_push_force", ["git", "push", "--force", "origin", "master"], str(tmp_path))
+        except PolicyDenied:
+            pass
+
+    assert nudger._policy_checked_count == 6
+    assert nudger._policy_denied_count == 6
+
+    events = (tmp_path / "monitoring_events.ndjson").read_text()
+    assert "policy_deny_rate_spike" in events
+
+
 def test_gods_eye_interrupt_malicious_content_is_flagged_and_quarantined(tmp_path):
     (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
     handoff_file = tmp_path / ".planning/CURRENT_STATE.md"

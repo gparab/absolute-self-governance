@@ -32,6 +32,7 @@ import sys
 
 os.environ.setdefault("TESTING", "True")
 
+from self_governance.alerts import AlertEngine, default_alert_rules  # noqa: E402
 from self_governance.db import Base, engine  # noqa: E402
 from self_governance.graph_memory import GraphMemoryEngine  # noqa: E402
 
@@ -162,6 +163,13 @@ def main() -> int:
     n_passed = sum(1 for _, p, _ in checks if p)
     print(f"\n{n_passed}/{len(checks)} checks passed.")
     if not all_passed:
+        # Phase D4: run the failed check names through the same alert engine
+        # nudger.py uses, instead of ad hoc printing -- this is the one
+        # place that rule is meant to fire from a one-shot script.
+        failed_names = [name for name, passed, _ in checks if not passed]
+        alert_engine = AlertEngine(rules=default_alert_rules())
+        for alert in alert_engine.check({"memory_recall_failed_checks": failed_names}):
+            print(f"ALERT [{alert.rule_name}]: {alert.message}")
         print("Memory recall harness FAILED -- do not build on top of C1 until this is green.")
         return 1
     print("Memory recall harness green. C1's read/write loop is trustworthy enough to extend.")

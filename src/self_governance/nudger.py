@@ -25,6 +25,7 @@ from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
 from self_governance.policy import ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
 from self_governance.policy_rules import default_rule_set
+from self_governance.alerts import AlertEngine, default_alert_rules
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -353,6 +354,21 @@ class ContinuousNudger:
         self._stop_event = threading.Event()
         self.hook_executor = ResilientHookExecutor(self.working_directory)
         self.policy_engine = PolicyEngine(rules=default_rule_set())
+        self.alert_engine = AlertEngine(rules=default_alert_rules())
+        self._consecutive_verify_failed = 0
+        self._policy_checked_count = 0
+        self._policy_denied_count = 0
+
+    def _check_alerts(self) -> None:
+        """Evaluates the alert engine over current counters (Phase D4) and
+        emits an 'alert' event for anything that fires."""
+        context = {
+            "consecutive_verify_failed": self._consecutive_verify_failed,
+            "policy_denied_count": self._policy_denied_count,
+            "policy_checked_count": self._policy_checked_count,
+        }
+        for alert in self.alert_engine.check(context):
+            _emit_event(self.working_directory, "alert", {"rule": alert.rule_name, "message": alert.message})
 
     def _policed_run(
         self,
@@ -375,10 +391,13 @@ class ContinuousNudger:
         """
         action = PolicyAction(name=name, argv=argv, path=path, source=source, risk_level=risk_level)
         decision = self.policy_engine.check(action)
+        self._policy_checked_count += 1
         if not decision.allowed:
+            self._policy_denied_count += 1
             _emit_event(self.working_directory, "policy_denied", {
                 "action": name, "argv": argv, "rule": decision.rule_name, "reason": decision.reason,
             })
+            self._check_alerts()
             raise PolicyDenied(decision)
         return subprocess.run(argv, cwd=cwd, **kwargs)  # nosec B603 B607 -- gated above by PolicyEngine
 
@@ -620,10 +639,12 @@ class ContinuousNudger:
                             
                             if pytest_res.returncode != 0 or audit_res.returncode != 0:
                                 logger.error("Verify phase failed. Pytest exit: %d, Audit exit: %d", pytest_res.returncode, audit_res.returncode)
+                                self._consecutive_verify_failed += 1
                                 _emit_event(self.working_directory, "verify_failed", {
                                     "pytest_failed": pytest_res.returncode != 0,
                                     "audit_failed": audit_res.returncode != 0,
                                 })
+                                self._check_alerts()
                                 if self.config.fail_on_verify:
                                     parsed["status"] = "FAILED"
                                     summary = "Verification failures summary:\n"
@@ -652,6 +673,7 @@ class ContinuousNudger:
                                     self.last_content = new_content
                                     return  # Halt succession
                             else:
+                                self._consecutive_verify_failed = 0
                                 _emit_event(self.working_directory, "verify_passed", {"message": "Verification passed."})
                                 # Ship Phase
                                 _emit_event(self.working_directory, "ship", {"message": "Running Ship Phase: retro generation and worktree merge"})
