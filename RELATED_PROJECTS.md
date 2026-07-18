@@ -102,6 +102,28 @@ genuinely novel and got adopted directly:
   test_code/target_file; both `run_benchmark` and `run_benchmark_parallel`
   now treat a checkpoint entry as done only if its recorded hash still
   matches the current task definition.
+- **OpenLore** (same repo as above) — differential-reachability blast-radius
+  check: given a module that's about to change, find every other module
+  that depends on it, directly or transitively, before the change lands.
+  `policy_rules/blast_radius.py`'s `compute_blast_radius` reuses the import
+  parser from the boundary gate above.
+- **[AgenticX](https://github.com/DemonDamon/AgenticX)** — risk-tiered
+  sandbox backend routing: map a risk level to a suggested isolation tier
+  instead of hardcoding one backend for every action. `policy_rules/
+  sandbox_routing.py`'s `suggest_sandbox_tier` reuses the existing
+  `RiskLevel` enum; informational only, not wired into the current
+  docker-only test sandbox.
+- **[agent-design-patterns](https://github.com/huangjia2019/agent-design-patterns)** —
+  tool-dispatch quota contract: a registered tool can declare a max-calls
+  ceiling so a runaway loop calling one tool can't hammer it indefinitely.
+  `mcp.py`'s `MCPClient.register_tool` takes an optional `max_calls`.
+- **[sovereign-skills](https://github.com/AlexZio00/sovereign-skills)** —
+  an eval-leakage 8-pattern taxonomy (checker_overfit, verifier_is_designer,
+  shared_pool_bias, self_confirming_loop, silent_default_pass,
+  metric_gaming, temporal_leakage, survivorship_reporting), applied as an
+  audit against this project's own eval surfaces in
+  [`docs/EVAL_LEAKAGE_TAXONOMY.md`](docs/EVAL_LEAKAGE_TAXONOMY.md) rather
+  than left as an abstract checklist.
 
 ## Where this project is different, for better or worse
 
