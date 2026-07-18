@@ -67,9 +67,16 @@ authoritative documentation.
 Surveyed the ~14 most-starred, architecturally-relevant repos tagged
 [`agentic-workflows`](https://github.com/topics/agentic-workflows) for
 patterns orthogonal to what's already here. Most were thin skill/prompt
-packages this project has already surpassed; three ideas were genuinely
-novel and got adopted directly:
+packages this project has already surpassed; the following ideas were
+genuinely novel and got adopted directly:
 
+- **[OpenLore](https://github.com/clay-good/OpenLore)** — pre-edit
+  import/architecture boundary gate: check "may file A import file B"
+  against declared layer rules *before* an edit lands, not after. Added as
+  `ImportBoundaryRule` (`policy_rules/import_boundary.py`), a new
+  `PolicyEngine` rule that denies a generated file's write if its imports
+  cross a declared layer boundary. Opt-in via a plan-level `layer_rules` key
+  in `gemini_adapter.py`; no rules declared means no opinion.
 - **[looper](https://github.com/ksimback/looper)** — fail-closed judge-verdict
   parsing: an unparseable LLM vote must count as a dissent, never silently
   default to a passing score. `consensus.py`'s `_parse_llm_score` previously
