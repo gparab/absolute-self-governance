@@ -148,3 +148,143 @@ def test_unrelated_constraints_are_not_linked():
     assert "Sanitize HTML before rendering" in context
     assert "Related past constraint" not in context
     assert "UTC timestamps" not in context
+
+
+def test_recommend_procedure_returns_none_for_all_stopword_query():
+    tenant = "test_tenant_procedure_stopword_query"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"], passed=True,
+    )
+
+    assert engine.recommend_procedure("the a of") is None
+
+
+def test_recommend_procedure_skips_candidate_with_all_stopword_trigger():
+    tenant = "test_tenant_procedure_stopword_candidate"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="degenerate_strategy", trigger_pattern="the a of", steps=["a"], passed=True,
+    )
+
+    assert engine.recommend_procedure("boundary condition test failure") is None
+
+
+def test_recommend_procedure_returns_none_when_nothing_recorded():
+    engine = GraphMemoryEngine(tenant_id="test_tenant_procedure_empty")
+
+    assert engine.recommend_procedure("boundary condition test failure") is None
+
+
+def test_record_and_recommend_procedure_happy_path():
+    tenant = "test_tenant_procedure_basic"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="qa_specialist_first",
+        trigger_pattern="boundary condition test failure off by one",
+        steps=["Lead with QA Specialist", "Reuse the failing test as the spec"],
+        passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition off by one failure")
+
+    assert result is not None
+    assert result["name"] == "qa_specialist_first"
+    assert result["success_count"] == 1
+    assert result["failure_count"] == 0
+    assert result["success_rate"] == 1.0
+    assert result["steps"] == ["Lead with QA Specialist", "Reuse the failing test as the spec"]
+
+
+def test_record_procedure_outcome_accumulates_on_the_same_named_node():
+    tenant = "test_tenant_procedure_accumulate"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    for _ in range(3):
+        engine.record_procedure_outcome(
+            name="qa_specialist_first", trigger_pattern="boundary condition test failure",
+            steps=["Lead with QA Specialist"], passed=True,
+        )
+    engine.record_procedure_outcome(
+        name="qa_specialist_first", trigger_pattern="boundary condition test failure",
+        steps=["Lead with QA Specialist"], passed=False,
+    )
+
+    db = SessionLocal()
+    nodes = db.query(GraphNode).filter_by(tenant_id=tenant, type="Procedure").all()
+    db.close()
+
+    assert len(nodes) == 1
+    result = engine.recommend_procedure("boundary condition test failure")
+    assert result["success_count"] == 3
+    assert result["failure_count"] == 1
+    assert result["success_rate"] == 0.75
+
+
+def test_recommend_procedure_picks_the_higher_success_rate_match():
+    tenant = "test_tenant_procedure_pick_best"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure",
+        steps=["a"], passed=False,
+    )
+    engine.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure",
+        steps=["b"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["name"] == "strategy_strong"
+
+
+def test_recommend_procedure_ignores_dissimilar_trigger_patterns():
+    tenant = "test_tenant_procedure_dissimilar"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="unrelated_strategy", trigger_pattern="database connection timeout",
+        steps=["a"], passed=True,
+    )
+
+    assert engine.recommend_procedure("boundary condition off by one failure") is None
+
+
+def test_recommend_procedure_ignores_procedures_with_zero_attempts():
+    """A procedure with no accumulated outcomes yet shouldn't be recommendable
+    -- there's no evidence it works, even if the trigger pattern matches."""
+    tenant = "test_tenant_procedure_zero_attempts"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    db = SessionLocal()
+    import json as _json
+    from self_governance.db import GraphNode as _GraphNode
+    db.merge(_GraphNode(
+        id=f"procedure_{tenant}_untested",
+        tenant_id=tenant,
+        type="Procedure",
+        properties=_json.dumps({
+            "name": "untested", "trigger_pattern": "boundary condition test failure",
+            "steps": [], "success_count": 0, "failure_count": 0,
+        }),
+    ))
+    db.commit()
+    db.close()
+
+    assert engine.recommend_procedure("boundary condition test failure") is None
+
+
+def test_record_procedure_outcome_rolls_back_and_reraises_on_db_error():
+    engine = GraphMemoryEngine(tenant_id="test_tenant_procedure_error")
+
+    with patch("sqlalchemy.orm.Session.commit", side_effect=RuntimeError("db exploded")):
+        with pytest.raises(RuntimeError, match="db exploded"):
+            engine.record_procedure_outcome(
+                name="broken", trigger_pattern="x", steps=[], passed=True
+            )
+
+    db = SessionLocal()
+    nodes = db.query(GraphNode).filter_by(tenant_id="test_tenant_procedure_error").all()
+    db.close()
+    assert nodes == []

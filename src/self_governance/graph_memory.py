@@ -35,6 +35,13 @@ _RELATION_JACCARD_THRESHOLD = 0.3
 # last 200 constraints.
 _RELATION_SCAN_LIMIT = 200
 
+# Procedural memory (Phase D3, book §17.10.3): named repair strategies with
+# success/failure counters, matched to a new failure by the same lexical
+# Jaccard approach as constraint linking above -- reuses _tokenize rather
+# than inventing a second similarity mechanism.
+_PROCEDURE_MATCH_THRESHOLD = 0.3
+_PROCEDURE_SCAN_LIMIT = 200
+
 
 def _tokenize(text: str) -> set:
     words = re.findall(r"[a-z0-9]+", text.lower())
@@ -188,5 +195,110 @@ class GraphMemoryEngine:
                 return "No specific past graph context found for these features."
                 
             return "GraphRAG Context:\n- " + "\n- ".join(set(relevant_context))
+        finally:
+            db.close()
+
+    def record_procedure_outcome(
+        self, name: str, trigger_pattern: str, steps: List[str], passed: bool
+    ) -> str:
+        """Records an outcome for a named repair strategy (Phase D3).
+
+        Procedures are identified by name (deterministic node id per
+        tenant), so repeated outcomes for the same named strategy
+        accumulate on one node instead of creating a new one each time.
+
+        Args:
+            name: Stable identifier for the strategy (e.g. "qa_specialist_first").
+            trigger_pattern: Text describing the failure shape this strategy
+                targets, used for lexical matching in recommend_procedure.
+            steps: Human-readable steps the strategy consists of.
+            passed: Whether this attempt at the strategy succeeded.
+
+        Returns:
+            The procedure node ID.
+        """
+        db = self._get_session()
+        try:
+            procedure_id = f"procedure_{self.tenant_id}_{name.replace(' ', '_')}"
+            existing = db.query(GraphNode).filter(GraphNode.id == procedure_id).first()
+            if existing is not None:
+                props = json.loads(str(existing.properties) if existing.properties else "{}")
+            else:
+                props = {"name": name, "trigger_pattern": trigger_pattern, "steps": steps, "success_count": 0, "failure_count": 0}
+
+            props["trigger_pattern"] = trigger_pattern
+            props["steps"] = steps
+            props["success_count"] = props.get("success_count", 0) + (1 if passed else 0)
+            props["failure_count"] = props.get("failure_count", 0) + (0 if passed else 1)
+
+            procedure_node = GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props))
+            db.merge(procedure_node)
+            db.commit()
+            return procedure_id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to record procedure outcome in graph memory: {e}")
+            raise
+        finally:
+            db.close()
+
+    def recommend_procedure(self, trigger_pattern: str) -> "dict | None":
+        """Recommends the best-performing known strategy for a failure shape.
+
+        Matches trigger_pattern against recorded procedures' trigger
+        patterns by lexical Jaccard similarity (same approach as A-MEM
+        constraint linking) and returns the highest success-rate match
+        above the threshold. Ties broken by higher total attempt count
+        (more evidence).
+
+        Args:
+            trigger_pattern: Text describing the current failure shape.
+
+        Returns:
+            {"name": str, "steps": List[str], "success_count": int,
+             "failure_count": int, "success_rate": float} for the best
+            match, or None if nothing matches above the threshold or
+            every match has zero recorded attempts.
+        """
+        db = self._get_session()
+        try:
+            procedures = (
+                db.query(GraphNode)
+                .filter(GraphNode.tenant_id == self.tenant_id, GraphNode.type == "Procedure")
+                .order_by(GraphNode.created_at.desc())
+                .limit(_PROCEDURE_SCAN_LIMIT)
+                .all()
+            )
+            query_tokens = _tokenize(trigger_pattern)
+            if not query_tokens:
+                return None
+
+            best = None
+            best_key = (-1.0, -1)
+            for node in procedures:
+                props = json.loads(str(node.properties) if node.properties else "{}")
+                candidate_tokens = _tokenize(props.get("trigger_pattern", ""))
+                if not candidate_tokens:
+                    continue
+                jaccard = len(query_tokens & candidate_tokens) / len(query_tokens | candidate_tokens)
+                if jaccard < _PROCEDURE_MATCH_THRESHOLD:
+                    continue
+                success = props.get("success_count", 0)
+                failure = props.get("failure_count", 0)
+                total = success + failure
+                if total == 0:
+                    continue
+                success_rate = success / total
+                key = (success_rate, total)
+                if key > best_key:
+                    best_key = key
+                    best = {
+                        "name": props.get("name"),
+                        "steps": props.get("steps", []),
+                        "success_count": success,
+                        "failure_count": failure,
+                        "success_rate": success_rate,
+                    }
+            return best
         finally:
             db.close()

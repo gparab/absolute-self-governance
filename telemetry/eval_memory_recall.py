@@ -15,7 +15,10 @@ into another's context), and feature isolation (querying an unbuilt feature
 returns the documented default, not noise). It also checks Phase C2b's A-MEM-
 style lexical linking: a constraint on one feature surfaces when querying a
 different feature whose constraint shares enough vocabulary to be the same
-concern, and stays silent when it doesn't.
+concern, and stays silent when it doesn't. And Phase D3's procedural
+memory: the higher-success-rate strategy is recommended for a lexically
+similar failure shape between two competing candidates, and a dissimilar
+failure shape gets no recommendation at all.
 
 Usage:
     python telemetry/eval_memory_recall.py
@@ -116,6 +119,31 @@ def run_checks() -> list[tuple[str, bool, str]]:
         "C2b linking: an unrelated constraint on the same feature is not marked as linked noise",
         ctx_linked.count("Related past constraint") == 1,
         ctx_linked,
+    ))
+
+    # D3: procedural memory -- recommend the best-known strategy for a
+    # failure shape, preferring higher success rate over a mere match.
+    tenant_d = GraphMemoryEngine(tenant_id="eval_tenant_d")
+    tenant_d.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure off by one",
+        steps=["Retry with the same persona order"], passed=False,
+    )
+    tenant_d.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure off by one",
+        steps=["Lead with QA Specialist", "Reuse the failing test as the spec"], passed=True,
+    )
+    recommendation = tenant_d.recommend_procedure("off by one boundary failure in a test")
+    checks.append((
+        "D3 procedural memory: recommends the higher-success-rate strategy for a similar failure shape",
+        recommendation is not None and recommendation["name"] == "strategy_strong",
+        str(recommendation),
+    ))
+
+    unrelated_recommendation = tenant_d.recommend_procedure("database connection pool exhausted")
+    checks.append((
+        "D3 procedural memory: dissimilar failure shape gets no recommendation",
+        unrelated_recommendation is None,
+        str(unrelated_recommendation),
     ))
 
     return checks

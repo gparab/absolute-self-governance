@@ -164,7 +164,7 @@ commands (`uv run pytest`/`ruff`/`mypy`), before commit.
 
 ---
 
-## Phase D3 — Procedural memory tier (extends C1/C2)
+## Phase D3 — Procedural memory tier (extends C1/C2) — built
 
 **Problem.** `GraphMemoryEngine` (Phase C1/C2) stores *facts* (constraints,
 test failures) but nothing about *strategies that worked*. The ASG repair
@@ -195,17 +195,42 @@ subsystem:
   pass rate needs its own held-out-style validation sweep before it goes
   in the paper — same discipline as §4.7.4.
 
-**Deliverables:** procedural memory schema + methods in `graph_memory.py`,
-`tests/test_graph_memory.py` additions, extend
-`telemetry/eval_memory_recall.py` with procedural-recall checks (mirrors
-how C2b's linking checks were added, not a new harness).
+**Delivered:** `record_procedure_outcome(name, trigger_pattern, steps, passed)`
+and `recommend_procedure(trigger_pattern) -> Optional[dict]` added to
+`GraphMemoryEngine`. Procedures are identified by a deterministic
+per-tenant node id (`procedure_{tenant_id}_{name}`), so repeated outcomes
+for the same named strategy accumulate success/failure counts on one node
+rather than creating a new node per call. Matching reuses C2b's exact
+`_tokenize`/Jaccard machinery (`_PROCEDURE_MATCH_THRESHOLD = 0.3`, bounded
+to the 200 most recent procedures per tenant, same recency-window
+rationale as the constraint-linking scan) -- no second similarity
+mechanism invented. Recommendation ranks by `(success_rate, total_attempts)`
+so a strategy tried once and passed doesn't outrank one tried 20 times at
+95%; a strategy with zero recorded attempts is never recommended even if
+its trigger pattern matches, since zero evidence isn't evidence.
 
-**Success criteria:** a synthetic 2-session fixture where session 2's
-failure shape matches session 1's resolved failure shape recommends
-session 1's successful strategy; gates stay green; no benchmark-path file
-touched until a dedicated validation sweep justifies wiring it in.
+`telemetry/eval_memory_recall.py` (the C2a harness) extended with 2 checks
+(now 9 total): recommends the higher-success-rate strategy between two
+competing candidates for a similar failure shape, and returns nothing for
+a dissimilar failure shape.
 
-**Cost:** M.
+**Not wired into the benchmark path**, as planned -- `record_procedure_outcome`
+and `recommend_procedure` are opt-in methods the repair loop *could* call,
+not currently called from `benchmark.py`. Any claim that procedural memory
+changes benchmark pass rate needs its own held-out-style validation sweep
+first, same discipline as §4.7.4; wiring it in without that sweep would be
+exactly the kind of unverified claim this project has repeatedly caught
+and removed.
+
+**Verified:** `tests/test_graph_memory.py` additions bring
+`graph_memory.py` back to 100% coverage (10 new tests: happy path,
+counter accumulation on the same named node, best-of-two-candidates
+selection, dissimilar-pattern rejection, zero-attempts rejection, two
+stopword-only edge cases, rollback-on-db-error). Full gate suite green
+(500 passed, 93.89% branch coverage, ruff/mypy/bandit clean), run twice
+via the exact CI commands before commit.
+
+**Cost:** M (as estimated).
 
 ---
 
