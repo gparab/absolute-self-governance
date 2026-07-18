@@ -597,6 +597,34 @@ def test_run_benchmark_parallel_resume_skips_completed_units(tmp_path, monkeypat
     assert len(checkpoint.read_text().strip().splitlines()) == 4
 
 
+def test_run_benchmark_parallel_resume_reruns_edited_task(tmp_path, monkeypatch):
+    """Edit-aware hash-keyed resume (pi-dynamic-workflows' pattern): editing
+    a task's test_code after a checkpoint was written must invalidate that
+    task's cached "done" entries so it re-runs, instead of resume treating
+    a stale result against an old task definition as still valid."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    checkpoint = tmp_path / "checkpoint.jsonl"
+
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [_TINY_TASK]
+    )
+    run_benchmark_parallel(api_key=None, reps=1, workers=2, resume_path=str(checkpoint))
+    assert len(checkpoint.read_text().strip().splitlines()) == 2
+
+    edited_task = {**_TINY_TASK, "test_code": "def test_x():\n    assert False\n"}
+    monkeypatch.setattr(
+        "self_governance.benchmark.load_benchmark_tasks", lambda source=None: [edited_task]
+    )
+    seen = []
+    results = run_benchmark_parallel(
+        api_key=None, reps=1, workers=2, resume_path=str(checkpoint), on_result=seen.append
+    )
+
+    assert len(seen) == 2, "editing the task must re-run both modes, not skip them as done"
+    assert len(results["task_tiny"]["baseline"]) == 1
+    assert len(results["task_tiny"]["asg"]) == 1
+
+
 def test_run_benchmark_parallel_resume_retries_error_outcomes(tmp_path, monkeypatch):
     """An outcome with an 'error' (e.g. a quota 429 the adapter's own
     retries couldn't outlast) must NOT be treated as done on resume --

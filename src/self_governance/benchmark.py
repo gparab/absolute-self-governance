@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 import tempfile
 import time
 import logging
@@ -8,6 +9,27 @@ from typing import Callable, List, Dict, Any, Optional
 from self_governance.models import Agent
 
 logger = logging.getLogger("self_governance.benchmark")
+
+
+def _task_content_hash(task: Dict[str, Any]) -> str:
+    """Content hash of the fields that actually define a benchmark unit's
+    run (edit-aware hash-keyed resume, pi-dynamic-workflows' pattern, July
+    2026 topic-page batch). A checkpoint entry is only "done" if this hash
+    still matches the current task definition -- editing a task's
+    description/test_code/target_file (e.g. fixing a flawed acceptance
+    test) invalidates its stale checkpoint entries so they re-run, while
+    every untouched task keeps its cached results instead of the whole
+    sweep replaying from scratch.
+    """
+    payload = json.dumps(
+        {
+            "description": task.get("description"),
+            "test_code": task.get("test_code"),
+            "target_file": task.get("target_file"),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def load_benchmark_tasks(source: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -42,36 +64,41 @@ def run_benchmark(
     tasks = load_benchmark_tasks()
     results = {}
 
-    # Load previously completed outcomes if resuming
-    done_keys = set()
+    # Load previously completed outcomes if resuming. Keyed by content hash
+    # (see _task_content_hash), not just task_id/mode, so an edited task
+    # definition re-runs instead of being skipped against stale results.
+    done_hashes: Dict[tuple, str] = {}
     if out_path:
         for outcome in _load_resume_outcomes(out_path):
-            if "error" not in outcome["result"]:
-                done_keys.add((outcome["task_id"], outcome["mode"]))
+            if "error" not in outcome["result"] and "task_hash" in outcome:
+                done_hashes[(outcome["task_id"], outcome["mode"])] = outcome["task_hash"]
 
     checkpoint_f = open(out_path, "a", encoding="utf-8") if out_path else None
 
     for task in tasks:
         task_id = task["id"]
+        task_hash = _task_content_hash(task)
         logger.info("Starting evaluation for benchmark task: %s", task["name"])
 
         # 1. Run Baseline (Direct Single-Agent Code Gen)
-        if (task_id, "baseline") not in done_keys:
+        if done_hashes.get((task_id, "baseline")) != task_hash:
             baseline_metrics = run_baseline_mode(task, api_key, model=model)
             if checkpoint_f:
                 checkpoint_f.write(json.dumps({
-                    "task_id": task_id, "mode": "baseline", "rep": 0, "result": baseline_metrics
+                    "task_id": task_id, "mode": "baseline", "rep": 0,
+                    "task_hash": task_hash, "result": baseline_metrics,
                 }) + "\n")
                 checkpoint_f.flush()
         else:
             baseline_metrics = {"passed": False, "latency_sec": 0.0, "estimated_cost_usd": 0.0, "skipped": True}
 
         # 2. Run ASG (Deliberation, Entropy Sizing, Multi-Agent Loop)
-        if (task_id, "asg") not in done_keys:
+        if done_hashes.get((task_id, "asg")) != task_hash:
             asg_metrics = run_asg_mode(task, api_key, model=model)
             if checkpoint_f:
                 checkpoint_f.write(json.dumps({
-                    "task_id": task_id, "mode": "asg", "rep": 0, "result": asg_metrics
+                    "task_id": task_id, "mode": "asg", "rep": 0,
+                    "task_hash": task_hash, "result": asg_metrics,
                 }) + "\n")
                 checkpoint_f.flush()
         else:
@@ -372,7 +399,13 @@ def _run_one_isolated(
         if "error" in result:
             span.set_attribute("error", result["error"])
 
-    return {"task_id": task["id"], "mode": mode, "rep": rep, "result": result}
+    return {
+        "task_id": task["id"],
+        "mode": mode,
+        "rep": rep,
+        "task_hash": _task_content_hash(task),
+        "result": result,
+    }
 
 
 def _load_resume_outcomes(resume_path: str) -> List[Dict[str, Any]]:
@@ -451,23 +484,34 @@ def run_benchmark_parallel(
         if missing:
             raise ValueError(f"Unknown task_ids: {sorted(missing)}")
 
-    done_keys = set()
+    # Edit-aware hash-keyed resume (pi-dynamic-workflows' pattern, July 2026
+    # topic-page batch): a checkpoint entry only counts as done if its
+    # recorded task_hash still matches the current task definition -- see
+    # _task_content_hash. Entries from before this field existed have no
+    # task_hash and are treated as stale (re-run), which is the safe
+    # direction for a correctness-sensitive benchmark checkpoint.
+    done_hashes: Dict[tuple, str] = {}
+    current_hash_by_id = {t["id"]: _task_content_hash(t) for t in tasks}
     results: Dict[str, Any] = {
         t["id"]: {"name": t["name"], "baseline": [], "asg": []} for t in tasks
     }
     if resume_path:
         for outcome in _load_resume_outcomes(resume_path):
-            if "error" in outcome["result"]:
+            if "error" in outcome["result"] or "task_hash" not in outcome:
                 continue
-            done_keys.add((outcome["task_id"], outcome["mode"], outcome["rep"]))
-            results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
+            done_hashes[(outcome["task_id"], outcome["mode"], outcome["rep"])] = outcome["task_hash"]
+            if (
+                outcome["task_id"] in current_hash_by_id
+                and outcome["task_hash"] == current_hash_by_id[outcome["task_id"]]
+            ):
+                results[outcome["task_id"]][outcome["mode"]].append(outcome["result"])
 
     units = [
         (task, mode, rep)
         for task in tasks
         for mode in ("baseline", "asg")
         for rep in range(reps)
-        if (task["id"], mode, rep) not in done_keys
+        if done_hashes.get((task["id"], mode, rep)) != current_hash_by_id[task["id"]]
     ]
 
     checkpoint_f = open(resume_path, "a", encoding="utf-8") if resume_path else None
