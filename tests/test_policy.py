@@ -1,3 +1,4 @@
+import pytest
 from self_governance.policy import (
     ActionSource,
     Decision,
@@ -19,6 +20,8 @@ from self_governance.policy_rules.path_protection import (
 )
 from self_governance.policy_rules.rate_limits import GitMutationRateLimitRule
 from self_governance.policy_rules.import_boundary import ImportBoundaryRule, LayerRule
+from self_governance.policy_rules.sandbox_routing import suggest_sandbox_tier
+from self_governance.policy_rules.blast_radius import compute_blast_radius
 
 
 def test_default_allow_with_no_rules():
@@ -235,6 +238,39 @@ def test_first_deny_wins_short_circuits_evaluation():
 
     assert decision.allowed is False
     assert decision.rule_name == "authority_hierarchy"
+
+
+def test_suggest_sandbox_tier_maps_risk_to_isolation_level():
+    assert suggest_sandbox_tier(RiskLevel.SAFE) == "in_process"
+    assert suggest_sandbox_tier(RiskLevel.CAUTION) == "subprocess"
+    assert suggest_sandbox_tier(RiskLevel.DANGEROUS) == "container"
+
+
+def test_suggest_sandbox_tier_rejects_forbidden():
+    with pytest.raises(ValueError, match="FORBIDDEN"):
+        suggest_sandbox_tier(RiskLevel.FORBIDDEN)
+
+
+def test_compute_blast_radius_finds_direct_and_transitive_importers():
+    modules = {
+        "pkg.core": "x = 1\n",
+        "pkg.service": "import pkg.core\n",
+        "pkg.api": "from pkg.service import thing\n",
+        "pkg.unrelated": "import os\n",
+    }
+
+    radius = compute_blast_radius("pkg.core", modules)
+
+    assert radius == ["pkg.api", "pkg.service"]
+
+
+def test_compute_blast_radius_empty_for_leaf_module():
+    modules = {
+        "pkg.core": "x = 1\n",
+        "pkg.service": "import pkg.core\n",
+    }
+
+    assert compute_blast_radius("pkg.service", modules) == []
 
 
 def test_import_boundary_rule_denies_forbidden_import():

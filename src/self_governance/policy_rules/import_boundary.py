@@ -22,7 +22,7 @@ class LayerRule:
     forbidden_imports: List[str] = field(default_factory=list)
 
 
-def _extract_imports(source: str) -> List[str]:
+def extract_imports(source: str) -> List[str]:
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -60,7 +60,7 @@ class ImportBoundaryRule:
         )
         if layer is None or not layer.forbidden_imports:
             return None
-        for module in _extract_imports(action.content):
+        for module in extract_imports(action.content):
             if any(
                 module == forbidden or module.startswith(forbidden + ".")
                 for forbidden in layer.forbidden_imports

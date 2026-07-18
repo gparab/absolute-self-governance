@@ -18,17 +18,33 @@ class MCPClient:
         """Initializes the MCPClient."""
         self.schemas: dict[str, dict[str, Any]] = {}
         self.tool_implementations: dict[str, Callable[..., Any]] = {}
+        # Tool-dispatch quota contract (agent-design-patterns' pattern, July
+        # 2026 topic-page batch): a tool can declare the max number of times
+        # it may be called per MCPClient lifetime, so a runaway agent loop
+        # calling one tool in a cycle hits a hard ceiling instead of
+        # hammering it indefinitely.
+        self._quotas: dict[str, int] = {}
+        self._call_counts: dict[str, int] = {}
 
-    def register_tool(self, name: str, schema: dict, implementation: Callable) -> None:
+    def register_tool(
+        self, name: str, schema: dict, implementation: Callable, max_calls: Optional[int] = None
+    ) -> None:
         """Registers a tool implementation along with its parameters schema.
 
         Args:
             name: String identifier of the tool.
             schema: Dictionary representing the JSON schema configuration.
             implementation: Callable tool handler.
+            max_calls: Optional ceiling on how many times this tool may be
+                called over this client's lifetime -- see the quota note on
+                __init__. None means unlimited (the prior, still-default
+                behavior).
         """
         self.schemas[name] = schema
         self.tool_implementations[name] = implementation
+        self._call_counts[name] = 0
+        if max_calls is not None:
+            self._quotas[name] = max_calls
         logger.info("Registered MCP tool: %s", name)
 
     def call_tool(self, tool_name: str, args: dict) -> dict:
@@ -44,6 +60,13 @@ class MCPClient:
         """
         if tool_name not in self.schemas:
             return {"status": "error", "error": f"Tool {tool_name} not found"}
+
+        quota = self._quotas.get(tool_name)
+        if quota is not None and self._call_counts[tool_name] >= quota:
+            return {
+                "status": "error",
+                "error": f"Quota exceeded for tool '{tool_name}' (max {quota} calls)",
+            }
 
         schema = self.schemas[tool_name]
         required = schema.get("required", [])
@@ -79,6 +102,7 @@ class MCPClient:
 
         try:
             impl = self.tool_implementations[tool_name]
+            self._call_counts[tool_name] += 1
             result = impl(**args)
             return {"status": "success", "result": result}
         except Exception as e:

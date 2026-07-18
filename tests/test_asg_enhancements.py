@@ -336,6 +336,41 @@ def test_mcp_client_tool_schema_and_call():
     assert "Type mismatch" in res_err2["error"]
 
 
+def test_mcp_client_tool_quota_contract():
+    """Tool-dispatch quota contract (agent-design-patterns' pattern, July
+    2026 topic-page batch): a tool registered with max_calls stops
+    dispatching once the ceiling is hit, so a runaway loop calling one
+    tool can't hammer it indefinitely."""
+    client = MCPClient()
+    calls = []
+
+    def flaky_tool() -> str:
+        calls.append(1)
+        return "ok"
+
+    client.register_tool("flaky_tool", {"properties": {}, "required": []}, flaky_tool, max_calls=2)
+
+    assert client.call_tool("flaky_tool", {})["status"] == "success"
+    assert client.call_tool("flaky_tool", {})["status"] == "success"
+    res = client.call_tool("flaky_tool", {})
+
+    assert res["status"] == "error"
+    assert "Quota exceeded" in res["error"]
+    assert len(calls) == 2
+
+
+def test_mcp_client_tool_without_quota_is_unlimited():
+    client = MCPClient()
+
+    def noop_tool() -> str:
+        return "ok"
+
+    client.register_tool("noop_tool", {"properties": {}, "required": []}, noop_tool)
+
+    for _ in range(10):
+        assert client.call_tool("noop_tool", {})["status"] == "success"
+
+
 def test_failure_driven_tool_refactoring():
     client = MCPClient()
     
