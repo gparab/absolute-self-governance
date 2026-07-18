@@ -94,6 +94,14 @@ genuinely novel and got adopted directly:
   can't game the gate by weakening its own test. `gemini_adapter.py` now
   accepts a `protected_write_paths` plan key that both file-writing code
   paths respect; the benchmark harness passes the acceptance test file.
+- **[pi-dynamic-workflows](https://github.com/QuintinShaw/pi-dynamic-workflows)** —
+  edit-aware hash-keyed resume: a checkpoint/resume system should key
+  "done" by a content hash of the step definition, not just its ID, so an
+  edited step re-runs while untouched steps still resume from cache.
+  `benchmark.py`'s `_task_content_hash` hashes each task's description/
+  test_code/target_file; both `run_benchmark` and `run_benchmark_parallel`
+  now treat a checkpoint entry as done only if its recorded hash still
+  matches the current task definition.
 
 ## Where this project is different, for better or worse
 
