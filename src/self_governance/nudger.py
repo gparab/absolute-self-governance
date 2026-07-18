@@ -22,6 +22,7 @@ from watchdog.events import FileSystemEventHandler
 from self_governance.anti_drift import LoopDetector, self_critique
 from self_governance.graph_memory import GraphMemoryEngine
 from self_governance.fact_extraction import extract_facts
+from self_governance.injection_defense import sanitize, TrustLevel
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -450,9 +451,22 @@ class ContinuousNudger:
                 with open(interrupt_path, "r", encoding="utf-8") as f:
                     interrupt_content = f.read().strip()
                 if interrupt_content:
+                    # interrupt.md is external, untrusted input (Phase D2):
+                    # sanitize before it reaches next_context, which the
+                    # next succession's prompt reads verbatim.
+                    sanitized = sanitize(interrupt_content, TrustLevel.UNTRUSTED)
+                    if sanitized.is_suspicious:
+                        _emit_event(self.working_directory, "injection_flagged", {
+                            "message": "God's Eye interrupt flagged by injection defense",
+                            "categories": sanitized.flagged_categories,
+                        })
+                        logger.warning(
+                            "God's Eye interrupt flagged: %s", sanitized.flagged_categories
+                        )
+                    quarantined_content = sanitized.quarantined_text
                     _emit_event(self.working_directory, "interrupt", {"message": f"Live constraint injected: {interrupt_content}"})
                     logger.warning("God's Eye Interrupt caught: %s", interrupt_content)
-                    
+
                     # Force a thermal escape context modification
                     artifact_path = os.path.join(self.working_directory, PIPELINE_ARTIFACT_FILE)
                     if os.path.exists(artifact_path):
@@ -463,8 +477,8 @@ class ContinuousNudger:
                                 phase=PipelinePhase.BUILD, author_persona="GodsEye", approved_roster=["GodsEye"],
                                 final_temperature=10.0, final_threshold=0.0, cycles_needed=1,
                                 decisions=[f"Interrupt injected: {interrupt_content}"],
-                                open_questions=[interrupt_content],
-                                next_context=f"LIVE CONSTRAINT: {interrupt_content}"
+                                open_questions=[quarantined_content],
+                                next_context=f"LIVE CONSTRAINT: {quarantined_content}"
                             )
                             f.write(fake_artifact.model_dump_json() + "\n")
                     # Clear the interrupt file

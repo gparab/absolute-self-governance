@@ -92,7 +92,7 @@ worktree name); gates stay green; policy denials show up in
 
 ---
 
-## Phase D2 — Injection defense for external input
+## Phase D2 — Injection defense for external input — built
 
 **Problem.** `interrupt.md` (God's Eye) content is read and injected
 directly into the next `PipelineArtifact`'s `open_questions`/`next_context`
@@ -118,17 +118,30 @@ injected into `next_context`, same as automaton wraps skill content — so
 even sanitized-but-suspicious text is visibly quarantined in the prompt
 rather than blended in as if the nudger wrote it itself.
 
-**Deliverables:** `injection_defense.py`, `tests/test_injection_defense.py`
-(one test per detection category, matching automaton's
-`injection-defense.test.ts` granularity), wired into the God's Eye
-interrupt path and the webhook tenant-input path.
+**Delivered:** `injection_defense.py` (`sanitize(text, TrustLevel) ->
+SanitizationResult`, 4 detection categories, regex-based, no external
+dependency), `tests/test_injection_defense.py` (11 tests, one per detection
+category plus edge cases: empty input, invalid-base64-shaped text,
+trusted-source passthrough). Wired into `nudger.py`'s God's Eye interrupt
+path only (`process_handoff`): `next_context` and `open_questions` are now
+quarantine-wrapped and scanned before being written into
+`pipeline_artifact.jsonl`; flagged interrupts emit an `injection_flagged`
+event. The `decisions` field is left unmodified since it's an audit record,
+never read back into a prompt.
 
-**Success criteria:** a synthetic interrupt containing each of the 4
-attack patterns is caught and quarantined, not silently blended into
-`next_context`; legitimate interrupts (real constraints) pass through
-unmodified; gates stay green.
+Scoped down from the original plan on one point: **not** wired into the
+webhook issue title/body path, because on inspection that content only
+feeds `_analyze_issue_complexity`'s keyword-matching heuristics (staffing
+size), never a generation prompt -- wiring sanitization into a path that
+doesn't reach an LLM would have been speculative, not defensive. Revisit if
+that ever changes.
 
-**Cost:** S-M.
+**Verified:** 100% coverage on the new module (14/14 branches), full gate
+suite green (464 passed, 93.64% overall branch coverage, ruff/mypy/bandit
+clean), run twice back to back with no flakiness, via the exact CI
+commands (`uv run pytest`/`ruff`/`mypy`), before commit.
+
+**Cost:** S-M (as estimated).
 
 ---
 
