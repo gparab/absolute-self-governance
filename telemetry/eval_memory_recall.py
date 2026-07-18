@@ -23,7 +23,10 @@ extension (SwarmAgentic/AgentNet/Vicinagearth survey): recency-weighted
 (EMA) ranking prefers a strategy with fewer but more recent successes over
 one with a higher raw success rate that's recently been failing, and
 flaw-category filtering only recommends a strategy actually observed to
-fix the requested category.
+fix the requested category. And the exploration-rate option (Braga-Neto
+2026): with epsilon forced high, an alternative candidate is returned
+instead of always the top scorer, so a strategy that falls behind isn't
+starved of fresh evidence forever.
 
 Usage:
     python telemetry/eval_memory_recall.py
@@ -36,6 +39,8 @@ import os
 import sys
 
 os.environ.setdefault("TESTING", "True")
+
+import random  # noqa: E402
 
 from self_governance.alerts import AlertEngine, default_alert_rules  # noqa: E402
 from self_governance.db import Base, engine  # noqa: E402
@@ -185,6 +190,24 @@ def run_checks() -> list[tuple[str, bool, str]]:
         "D3 extension: flaw-category filter only recommends a strategy observed to fix that category",
         filtered is not None and filtered["name"] == "strategy_wrong_category",
         str(filtered),
+    ))
+
+    # Exploration-rate option (Braga-Neto 2026): a high epsilon returns an
+    # alternative instead of always starving the runner-up of fresh evidence.
+    tenant_f = GraphMemoryEngine(tenant_id="eval_tenant_f")
+    tenant_f.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure", steps=["a"], passed=False,
+    )
+    tenant_f.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure", steps=["b"], passed=True,
+    )
+    exploration_pick = tenant_f.recommend_procedure(
+        "boundary condition test failure", epsilon=1.0, rng=random.Random(0)
+    )
+    checks.append((
+        "exploration-rate: epsilon=1.0 returns the alternative, not the frozen-in top scorer",
+        exploration_pick is not None and exploration_pick["name"] == "strategy_weak",
+        str(exploration_pick),
     ))
 
     return checks

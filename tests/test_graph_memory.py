@@ -472,6 +472,74 @@ def test_recommend_procedure_falls_back_to_success_rate_when_ema_field_absent():
     assert result["ema_success_score"] == 0.75
 
 
+def test_recommend_procedure_default_epsilon_always_returns_best():
+    """epsilon=0.0 (the default) must behave identically to before this
+    feature existed -- pure exploitation, no randomness."""
+    tenant = "test_tenant_procedure_epsilon_default"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure", steps=["a"], passed=False,
+    )
+    engine.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure", steps=["b"], passed=True,
+    )
+
+    for _ in range(20):
+        result = engine.recommend_procedure("boundary condition test failure")
+        assert result["name"] == "strategy_strong"
+
+
+def test_recommend_procedure_epsilon_one_with_forced_roll_returns_an_alternative():
+    import random as _random
+
+    tenant = "test_tenant_procedure_epsilon_explore"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure", steps=["a"], passed=False,
+    )
+    engine.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure", steps=["b"], passed=True,
+    )
+
+    rng = _random.Random(0)  # first call to .random() with seed 0 is < 1.0, always triggers explore
+    result = engine.recommend_procedure("boundary condition test failure", epsilon=1.0, rng=rng)
+
+    assert result["name"] == "strategy_weak"
+
+
+def test_recommend_procedure_epsilon_has_no_effect_with_a_single_candidate():
+    tenant = "test_tenant_procedure_epsilon_single"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="only_strategy", trigger_pattern="boundary condition test failure", steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure", epsilon=1.0)
+
+    assert result["name"] == "only_strategy"
+
+
+def test_recommend_procedure_epsilon_zero_roll_returns_best_even_with_epsilon_set():
+    import random as _random
+
+    tenant = "test_tenant_procedure_epsilon_no_roll"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="strategy_weak", trigger_pattern="boundary condition test failure", steps=["a"], passed=False,
+    )
+    engine.record_procedure_outcome(
+        name="strategy_strong", trigger_pattern="boundary condition test failure", steps=["b"], passed=True,
+    )
+
+    class NeverExplore(_random.Random):
+        def random(self):
+            return 0.999  # always >= any reasonable epsilon < 1.0
+
+    result = engine.recommend_procedure("boundary condition test failure", epsilon=0.5, rng=NeverExplore())
+
+    assert result["name"] == "strategy_strong"
+
+
 def test_flaw_categories_is_a_fixed_taxonomy_containing_expected_values():
     assert FLAW_CATEGORIES == {
         "tests_failed", "no_files_written", "sandbox_error",

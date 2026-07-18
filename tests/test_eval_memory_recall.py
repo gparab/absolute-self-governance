@@ -8,7 +8,7 @@ def test_memory_recall_harness_all_checks_pass():
     checks = run_checks()
     failed = [name for name, passed, _ in checks if not passed]
     assert not failed, f"memory recall harness regressed: {failed}"
-    assert len(checks) == 11
+    assert len(checks) == 12
 
 
 def test_main_fires_regression_alert_and_exits_nonzero_on_failure(capsys):

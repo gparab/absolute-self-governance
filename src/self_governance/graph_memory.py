@@ -6,6 +6,7 @@ decisions, constraints, and roles into a persistent global Knowledge Graph.
 
 import json
 import logging
+import random
 import re
 import uuid
 import networkx as nx
@@ -298,8 +299,14 @@ class GraphMemoryEngine:
         finally:
             db.close()
 
-    def recommend_procedure(self, trigger_pattern: str, flaw_category: "str | None" = None) -> "dict | None":
-        """Recommends the best-performing known strategy for a failure shape.
+    def recommend_procedure(
+        self,
+        trigger_pattern: str,
+        flaw_category: "str | None" = None,
+        epsilon: float = 0.0,
+        rng: "random.Random | None" = None,
+    ) -> "dict | None":
+        """Recommends a known strategy for a failure shape.
 
         Matches trigger_pattern against recorded procedures' trigger
         patterns by lexical Jaccard similarity (same approach as A-MEM
@@ -307,6 +314,15 @@ class GraphMemoryEngine:
         than raw success rate, so a strategy's recent performance matters
         more than its full history (AgentNet eq. 2) -- ties broken by
         higher total attempt count (more evidence).
+
+        Pure exploitation (the default, epsilon=0.0) always returns the top
+        scorer -- but if every caller always follows that recommendation, a
+        strategy that falls slightly behind the leader never gets tried
+        again, so its score is frozen forever and an early leader can stay
+        "best" long after it stops being best (Braga-Neto 2026's
+        exploration-rate discussion of premature swarm convergence). Setting
+        epsilon > 0 occasionally returns a different qualifying candidate
+        instead, so alternatives keep collecting fresh evidence.
 
         Args:
             trigger_pattern: Text describing the current failure shape.
@@ -317,14 +333,22 @@ class GraphMemoryEngine:
                 failure). If no candidate has this category represented,
                 returns None rather than silently falling back to an
                 unfiltered recommendation.
+            epsilon: Probability (0.0-1.0) of returning a random
+                non-top-scoring qualifying candidate instead of the best
+                one. 0.0 (default) is pure exploitation, matching prior
+                behavior exactly. Has no effect when 0 or 1 candidates
+                qualify -- there's nothing to explore.
+            rng: Optional `random.Random` instance for deterministic
+                testing. Defaults to the module-level `random` functions.
 
         Returns:
             {"name": str, "steps": List[str], "success_count": int,
              "failure_count": int, "success_rate": float,
              "ema_success_score": float, "flaw_category_counts": dict,
-             "critiques": List[str]} for the best match, or None if nothing
-            matches above the threshold, every match has zero recorded
-            attempts, or (with flaw_category set) nothing has that category.
+             "critiques": List[str]} for the chosen match, or None if
+            nothing matches above the threshold, every match has zero
+            recorded attempts, or (with flaw_category set) nothing has that
+            category.
         """
         db = self._get_session()
         try:
@@ -339,8 +363,7 @@ class GraphMemoryEngine:
             if not query_tokens:
                 return None
 
-            best = None
-            best_key = (-1.0, -1)
+            candidates = []
             for node in procedures:
                 props = json.loads(str(node.properties) if node.properties else "{}")
                 candidate_tokens = _tokenize(props.get("trigger_pattern", ""))
@@ -360,19 +383,29 @@ class GraphMemoryEngine:
                 ema_score = props.get("ema_success_score")
                 if ema_score is None:
                     ema_score = success / total
-                key = (ema_score, total)
-                if key > best_key:
-                    best_key = key
-                    best = {
-                        "name": props.get("name"),
-                        "steps": props.get("steps", []),
-                        "success_count": success,
-                        "failure_count": failure,
-                        "success_rate": success / total,
-                        "ema_success_score": ema_score,
-                        "flaw_category_counts": flaw_counts,
-                        "critiques": props.get("critiques", []),
-                    }
-            return best
+                candidates.append({
+                    "name": props.get("name"),
+                    "steps": props.get("steps", []),
+                    "success_count": success,
+                    "failure_count": failure,
+                    "success_rate": success / total,
+                    "ema_success_score": ema_score,
+                    "flaw_category_counts": flaw_counts,
+                    "critiques": props.get("critiques", []),
+                    "_rank_key": (ema_score, total),
+                })
+
+            if not candidates:
+                return None
+
+            best = max(candidates, key=lambda c: c["_rank_key"])
+            chosen = best
+            if epsilon > 0.0 and len(candidates) > 1:
+                picker = rng or random
+                if picker.random() < epsilon:
+                    alternatives = [c for c in candidates if c is not best]
+                    chosen = picker.choice(alternatives)
+
+            return {k: v for k, v in chosen.items() if k != "_rank_key"}
         finally:
             db.close()
