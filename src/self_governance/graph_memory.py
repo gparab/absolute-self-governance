@@ -42,6 +42,30 @@ _RELATION_SCAN_LIMIT = 200
 _PROCEDURE_MATCH_THRESHOLD = 0.3
 _PROCEDURE_SCAN_LIMIT = 200
 
+# Procedural memory extension (research synthesis of SwarmAgentic (EMNLP
+# 2025), AgentNet (NeurIPS 2025), and a survey on LLM multi-agent systems
+# (Vicinagearth 2024): three independent papers converge on the same gap in
+# a flat success/failure counter -- no recency weighting, no attribution of
+# *which* failure shape a strategy handles, no record of *why* an attempt
+# failed beyond pass/fail.
+#
+# A fixed taxonomy (not free text) so per-category stats stay comparable
+# across strategies, adapted from SwarmAgentic's role/step flaw categories
+# to what actually fails in ASG's single-agent perspective-rotating attempt
+# loop -- reusing benchmark.py's existing failure classes where they
+# already exist, rather than inventing a parallel vocabulary.
+FLAW_CATEGORIES = frozenset({
+    "tests_failed", "no_files_written", "sandbox_error",
+    "wrong_persona_order", "missing_requirement", "ambiguous_requirement",
+    "unknown",
+})
+_UNKNOWN_FLAW_CATEGORY = "unknown"
+_MAX_STORED_CRITIQUES = 5
+# AgentNet eq. 2's decayed-edge-weight formula, applied to a strategy's
+# score instead of a graph edge: recent outcomes matter more than old ones,
+# without needing full history.
+_EMA_ALPHA = 0.8
+
 
 def _tokenize(text: str) -> set:
     words = re.findall(r"[a-z0-9]+", text.lower())
@@ -199,9 +223,15 @@ class GraphMemoryEngine:
             db.close()
 
     def record_procedure_outcome(
-        self, name: str, trigger_pattern: str, steps: List[str], passed: bool
+        self,
+        name: str,
+        trigger_pattern: str,
+        steps: List[str],
+        passed: bool,
+        flaw_category: "str | None" = None,
+        critique: "str | None" = None,
     ) -> str:
-        """Records an outcome for a named repair strategy (Phase D3).
+        """Records an outcome for a named repair strategy (Phase D3, extended).
 
         Procedures are identified by name (deterministic node id per
         tenant), so repeated outcomes for the same named strategy
@@ -213,6 +243,14 @@ class GraphMemoryEngine:
                 targets, used for lexical matching in recommend_procedure.
             steps: Human-readable steps the strategy consists of.
             passed: Whether this attempt at the strategy succeeded.
+            flaw_category: Optional fixed-taxonomy tag (see FLAW_CATEGORIES)
+                describing what kind of failure this outcome addressed.
+                Anything outside the fixed set is normalized to "unknown" --
+                a fixed taxonomy only stays comparable across strategies if
+                it can't silently grow free-text variants.
+            critique: Optional short natural-language note on why this
+                attempt passed or failed (Reflexion-style). The most recent
+                _MAX_STORED_CRITIQUES are kept; older ones are dropped.
 
         Returns:
             The procedure node ID.
@@ -224,12 +262,30 @@ class GraphMemoryEngine:
             if existing is not None:
                 props = json.loads(str(existing.properties) if existing.properties else "{}")
             else:
-                props = {"name": name, "trigger_pattern": trigger_pattern, "steps": steps, "success_count": 0, "failure_count": 0}
+                props = {
+                    "name": name, "trigger_pattern": trigger_pattern, "steps": steps,
+                    "success_count": 0, "failure_count": 0, "ema_success_score": None,
+                    "flaw_category_counts": {}, "critiques": [],
+                }
 
             props["trigger_pattern"] = trigger_pattern
             props["steps"] = steps
             props["success_count"] = props.get("success_count", 0) + (1 if passed else 0)
             props["failure_count"] = props.get("failure_count", 0) + (0 if passed else 1)
+
+            outcome = 1.0 if passed else 0.0
+            prior_ema = props.get("ema_success_score")
+            props["ema_success_score"] = outcome if prior_ema is None else _EMA_ALPHA * outcome + (1 - _EMA_ALPHA) * prior_ema
+
+            category = flaw_category if flaw_category in FLAW_CATEGORIES else _UNKNOWN_FLAW_CATEGORY
+            flaw_counts = props.get("flaw_category_counts", {})
+            flaw_counts[category] = flaw_counts.get(category, 0) + 1
+            props["flaw_category_counts"] = flaw_counts
+
+            if critique:
+                critiques = props.get("critiques", [])
+                critiques.append(critique)
+                props["critiques"] = critiques[-_MAX_STORED_CRITIQUES:]
 
             procedure_node = GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props))
             db.merge(procedure_node)
@@ -242,23 +298,33 @@ class GraphMemoryEngine:
         finally:
             db.close()
 
-    def recommend_procedure(self, trigger_pattern: str) -> "dict | None":
+    def recommend_procedure(self, trigger_pattern: str, flaw_category: "str | None" = None) -> "dict | None":
         """Recommends the best-performing known strategy for a failure shape.
 
         Matches trigger_pattern against recorded procedures' trigger
         patterns by lexical Jaccard similarity (same approach as A-MEM
-        constraint linking) and returns the highest success-rate match
-        above the threshold. Ties broken by higher total attempt count
-        (more evidence).
+        constraint linking). Ranks by recency-weighted EMA score rather
+        than raw success rate, so a strategy's recent performance matters
+        more than its full history (AgentNet eq. 2) -- ties broken by
+        higher total attempt count (more evidence).
 
         Args:
             trigger_pattern: Text describing the current failure shape.
+            flaw_category: If given, only consider strategies that have at
+                least one recorded outcome tagged with this category
+                (SwarmAgentic-style slicing: a strategy's aggregate score
+                can hide that it only ever worked on a different kind of
+                failure). If no candidate has this category represented,
+                returns None rather than silently falling back to an
+                unfiltered recommendation.
 
         Returns:
             {"name": str, "steps": List[str], "success_count": int,
-             "failure_count": int, "success_rate": float} for the best
-            match, or None if nothing matches above the threshold or
-            every match has zero recorded attempts.
+             "failure_count": int, "success_rate": float,
+             "ema_success_score": float, "flaw_category_counts": dict,
+             "critiques": List[str]} for the best match, or None if nothing
+            matches above the threshold, every match has zero recorded
+            attempts, or (with flaw_category set) nothing has that category.
         """
         db = self._get_session()
         try:
@@ -288,8 +354,13 @@ class GraphMemoryEngine:
                 total = success + failure
                 if total == 0:
                     continue
-                success_rate = success / total
-                key = (success_rate, total)
+                flaw_counts = props.get("flaw_category_counts", {})
+                if flaw_category is not None and flaw_counts.get(flaw_category, 0) == 0:
+                    continue
+                ema_score = props.get("ema_success_score")
+                if ema_score is None:
+                    ema_score = success / total
+                key = (ema_score, total)
                 if key > best_key:
                     best_key = key
                     best = {
@@ -297,7 +368,10 @@ class GraphMemoryEngine:
                         "steps": props.get("steps", []),
                         "success_count": success,
                         "failure_count": failure,
-                        "success_rate": success_rate,
+                        "success_rate": success / total,
+                        "ema_success_score": ema_score,
+                        "flaw_category_counts": flaw_counts,
+                        "critiques": props.get("critiques", []),
                     }
             return best
         finally:

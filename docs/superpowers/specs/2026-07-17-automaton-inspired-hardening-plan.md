@@ -232,6 +232,61 @@ via the exact CI commands before commit.
 
 **Cost:** M (as estimated).
 
+### D3 extension — recency weighting, flaw taxonomy, critique text — built
+
+A later research pass across 8 papers (SwarmAgentic, EMNLP 2025; AgentNet,
+NeurIPS 2025; a survey on LLM multi-agent systems, Vicinagearth 2024; plus
+5 papers on physical/robotic swarms and telecom edge intelligence that
+were honestly assessed as not applicable to ASG's domain) found that three
+independent, unrelated papers converged on the same gap in the D3 design
+above: a flat `success_count`/`failure_count` ratio has no recency
+weighting, no attribution of *which* failure shape a strategy actually
+handles, and no record of *why* an attempt failed beyond pass/fail.
+
+**Delivered**, extending the same `GraphMemoryEngine` schema with no new
+subsystem:
+- `FLAW_CATEGORIES`: a fixed 7-value taxonomy (`tests_failed`,
+  `no_files_written`, `sandbox_error` -- reusing `benchmark.py`'s existing
+  failure classes where they already exist -- plus `wrong_persona_order`,
+  `missing_requirement`, `ambiguous_requirement`, `unknown`), adapted from
+  SwarmAgentic's role/step flaw taxonomy to what actually fails in ASG's
+  single-agent attempt loop. `record_procedure_outcome` normalizes any
+  unrecognized value to `unknown` rather than silently growing a free-text
+  vocabulary -- a fixed taxonomy only stays comparable across strategies
+  if it can't drift.
+- `ema_success_score`: AgentNet eq. 2's decayed-weight formula
+  (`score = α·outcome + (1-α)·prior_score`, α=0.8), so a strategy's recent
+  performance dominates its full history. `recommend_procedure` now ranks
+  by `(ema_success_score, total_attempts)` instead of raw success rate --
+  a strategy with 4 recent failures after 4 early successes (raw rate
+  0.5) correctly loses to a strategy with a single recent success (raw
+  rate 1.0), which a raw-success-rate ranking alone wouldn't capture once
+  the sample sizes diverge.
+- `critiques`: an optional Reflexion-style natural-language note per
+  outcome (s44336 survey), capped at the 5 most recent per strategy.
+- `flaw_category` filter on `recommend_procedure`: when passed, only
+  strategies with at least one recorded outcome tagged that category are
+  considered (SwarmAgentic-style slicing) -- returns `None` rather than
+  silently falling back to an unfiltered recommendation if nothing
+  matches, so a caller never gets a strategy recommended for a failure
+  type it's never actually handled.
+
+**Verified:** `tests/test_graph_memory.py` grew to 27 tests (11 new: flaw
+category tracking/normalization/omission, critique storage and the
+5-entry cap, EMA weighting demonstrated to diverge from raw success rate,
+EMA-based ranking beating a higher-raw-rate-but-declining strategy,
+flaw-category filtering both matching and returning `None`, and a
+backward-compatibility check for procedure nodes written before this
+field existed), 100% coverage maintained. `telemetry/eval_memory_recall.py`
+grew from 9 to 11 checks. Full gate suite green (531 passed, 94.00%
+branch coverage, ruff/mypy/bandit clean), run twice via the exact CI
+commands before commit.
+
+Still not wired into the benchmark path, same discipline as the base D3
+design and §4.7.4.
+
+**Cost:** S.
+
 ---
 
 ## Phase D4 — Metrics + alerting on top of existing telemetry — built

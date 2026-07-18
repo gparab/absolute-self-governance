@@ -18,7 +18,12 @@ different feature whose constraint shares enough vocabulary to be the same
 concern, and stays silent when it doesn't. And Phase D3's procedural
 memory: the higher-success-rate strategy is recommended for a lexically
 similar failure shape between two competing candidates, and a dissimilar
-failure shape gets no recommendation at all.
+failure shape gets no recommendation at all. And D3's research-synthesis
+extension (SwarmAgentic/AgentNet/Vicinagearth survey): recency-weighted
+(EMA) ranking prefers a strategy with fewer but more recent successes over
+one with a higher raw success rate that's recently been failing, and
+flaw-category filtering only recommends a strategy actually observed to
+fix the requested category.
 
 Usage:
     python telemetry/eval_memory_recall.py
@@ -145,6 +150,41 @@ def run_checks() -> list[tuple[str, bool, str]]:
         "D3 procedural memory: dissimilar failure shape gets no recommendation",
         unrelated_recommendation is None,
         str(unrelated_recommendation),
+    ))
+
+    # D3 extension: EMA ranking prefers recent performance over raw rate.
+    tenant_e = GraphMemoryEngine(tenant_id="eval_tenant_e")
+    for _ in range(4):
+        tenant_e.record_procedure_outcome(
+            name="strategy_declining", trigger_pattern="boundary condition test failure",
+            steps=["a"], passed=True, flaw_category="tests_failed",
+        )
+    for _ in range(4):
+        tenant_e.record_procedure_outcome(
+            name="strategy_declining", trigger_pattern="boundary condition test failure",
+            steps=["a"], passed=False, flaw_category="tests_failed",
+        )
+    tenant_e.record_procedure_outcome(
+        name="strategy_recovering", trigger_pattern="boundary condition test failure",
+        steps=["b"], passed=True, flaw_category="tests_failed",
+    )
+    ema_recommendation = tenant_e.recommend_procedure("boundary condition test failure")
+    checks.append((
+        "D3 extension: EMA ranking prefers recent success over a higher but stale raw success rate",
+        ema_recommendation is not None and ema_recommendation["name"] == "strategy_recovering",
+        str(ema_recommendation),
+    ))
+
+    # D3 extension: flaw-category filtering only recommends an observed fit.
+    tenant_e.record_procedure_outcome(
+        name="strategy_wrong_category", trigger_pattern="boundary condition test failure",
+        steps=["c"], passed=True, flaw_category="wrong_persona_order",
+    )
+    filtered = tenant_e.recommend_procedure("boundary condition test failure", flaw_category="wrong_persona_order")
+    checks.append((
+        "D3 extension: flaw-category filter only recommends a strategy observed to fix that category",
+        filtered is not None and filtered["name"] == "strategy_wrong_category",
+        str(filtered),
     ))
 
     return checks
