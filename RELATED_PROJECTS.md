@@ -62,6 +62,32 @@ authoritative documentation.
   async GitHub SDK with built-in webhook signature verification. `github_app.py`
   currently hand-rolls HMAC verification and untyped payload parsing.
 
+## Ideas adopted from the `agentic-workflows` GitHub topic
+
+Surveyed the ~14 most-starred, architecturally-relevant repos tagged
+[`agentic-workflows`](https://github.com/topics/agentic-workflows) for
+patterns orthogonal to what's already here. Most were thin skill/prompt
+packages this project has already surpassed; three ideas were genuinely
+novel and got adopted directly:
+
+- **[looper](https://github.com/ksimback/looper)** — fail-closed judge-verdict
+  parsing: an unparseable LLM vote must count as a dissent, never silently
+  default to a passing score. `consensus.py`'s `_parse_llm_score` previously
+  defaulted unparseable output to `7.5`, above the consensus approval floor;
+  it now returns `0.0` with a `PARSE_FAILURE` justification.
+- **looper** (same repo) — no-progress stall detection: hash the set of
+  currently-failing tests per attempt; an identical signature across
+  consecutive attempts means the rewrite made no progress, distinct from
+  failing differently. `benchmark.py`'s ASG mode now tracks this as
+  `stalled_attempts` (observability only; doesn't change the pass/fail
+  verdict).
+- **[Agent-Loop-Skills](https://github.com/gaasher/Agent-Loop-Skills)** —
+  structurally enforced disjoint write-scope: the agent authoring an attempt
+  must be barred from writing to the file it's being verified against, so it
+  can't game the gate by weakening its own test. `gemini_adapter.py` now
+  accepts a `protected_write_paths` plan key that both file-writing code
+  paths respect; the benchmark harness passes the acceptance test file.
+
 ## Where this project is different, for better or worse
 
 - **TETD consensus** (temperature annealing + threshold decay) is a real,
