@@ -271,7 +271,7 @@ absolute-self-governance/
 │       ├── tracing.py         # OpenTelemetry (OTLP or console)
 │       ├── telemetry.py       # Correlation IDs & structured logging
 │       └── cli.py             # CLI subcommands
-├── tests/                     # 152 tests (unit, e2e, stress, multi-tenancy)
+├── tests/                     # 573 tests (unit, e2e, stress, multi-tenancy)
 ├── telemetry/                 # Real-world run harnesses & raw results
 ├── alembic/                   # Database migrations
 ├── Dockerfile                 # Multi-stage image (non-root)
