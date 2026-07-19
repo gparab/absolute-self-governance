@@ -10,6 +10,7 @@ A council of role-based agents votes on which roles a task needs — via an adap
   <a href="https://pypi.org/project/absolute-self-governance/"><img src="https://img.shields.io/pypi/v/absolute-self-governance" alt="PyPI"></a>
   <a href="https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml"><img src="https://github.com/gparab/absolute-self-governance/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://pypi.org/project/absolute-self-governance/"><img src="https://img.shields.io/pypi/pyversions/absolute-self-governance" alt="Python"></a>
+  <a href="https://github.com/gparab/absolute-self-governance/pkgs/container/absolute-self-governance"><img src="https://img.shields.io/badge/ghcr.io-container-blue?logo=docker" alt="Docker image"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
