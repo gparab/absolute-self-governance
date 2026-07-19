@@ -6,11 +6,12 @@ decisions, constraints, and roles into a persistent global Knowledge Graph.
 
 import json
 import logging
+import math
 import random
 import re
 import uuid
 import networkx as nx
-from typing import List
+from typing import Dict, List
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
@@ -80,6 +81,23 @@ _MAX_STORED_CRITIQUES = 5
 # score instead of a graph edge: recent outcomes matter more than old ones,
 # without needing full history.
 _EMA_ALPHA = 0.8
+# Forgetting-curve decay rate (MemoryBank, Zhong et al. 2024, July 2026
+# topic-page batch): applied per "touch" of logical staleness (see
+# last_touch_index), not per wall-clock second -- a strategy that hasn't
+# been recorded against in N other outcomes' worth of activity is treated
+# as N units stale. This is a distinct, additive signal alongside the
+# existing EMA score (which already weights recent outcomes more within a
+# strategy's own history) rather than a replacement for it: EMA answers "is
+# this strategy currently doing well", staleness answers "how long since we
+# last checked".
+_FORGETTING_DECAY_RATE = 0.05
+
+# ExpeL-style insight extraction (Zhao et al. 2024, July 2026 topic-page
+# batch): a recurring flaw category or blamed step is only worth surfacing
+# as a cross-strategy insight once it's shown up more than once -- a single
+# occurrence is just one strategy's flaw, not a systemic pattern.
+_INSIGHT_MIN_STRATEGIES = 2
+_INSIGHT_MIN_STEP_FAILURES = 2
 
 
 def _tokenize(text: str) -> set:
@@ -237,6 +255,68 @@ class GraphMemoryEngine:
         finally:
             db.close()
 
+    def record_roster_outcome(
+        self, roster: List[str], task_description: str, passed: bool, **kwargs
+    ) -> str:
+        """Team-composition analogue of record_procedure_outcome (July 2026
+        topic-page batch, papers-of-papers research: Dynamic LLM-Agent
+        Network's team-optimization idea and GPTSwarm/G-Designer's
+        communication-topology idea both reduce, for ASG's actual
+        architecture, to the same question -- which ordered roster works
+        for which task shape).
+
+        ASG's agent "topology" today is a flat ordered roster (see
+        benchmark.py's perspective-rotating attempt loop), not a graph a
+        GNN could learn structure over -- building GPTSwarm/G-Designer's
+        full graph-topology optimizer, or Agent Symbolic Learning/Gödel
+        Agent's self-rewriting strategy update, would be speculative
+        complexity for an architecture that doesn't have graph-shaped
+        agent communication yet, and self-rewriting introduces safety
+        risk beyond the current PolicyEngine's scope. This reuses the
+        existing, already-tested procedural-memory substrate instead:
+        roster membership and order are recorded as `steps`, and
+        `task_description` as the `trigger_pattern` to match future tasks
+        against -- observational and recommend-only, like
+        recommend_procedure, never auto-applied.
+
+        Args:
+            roster: Ordered agent role names used for this attempt.
+            task_description: Text describing the task this roster was
+                used for, matched lexically by recommend_roster.
+            passed: Whether this roster's attempt succeeded.
+            **kwargs: Forwarded to record_procedure_outcome (flaw_category,
+                critique, evidence_tag, blamed_step -- blamed_step here
+                names which specific agent role, not procedure step,
+                carried the outcome).
+
+        Returns:
+            The underlying procedure node ID.
+        """
+        name = "roster_" + "_".join(sorted(roster))
+        return self.record_procedure_outcome(
+            name=name, trigger_pattern=task_description, steps=list(roster), passed=passed, **kwargs
+        )
+
+    def recommend_roster(self, task_description: str, **kwargs) -> "dict | None":
+        """Recommends a previously-successful roster composition for a task
+        shape -- see record_roster_outcome for why this reuses
+        recommend_procedure rather than a separate graph/topology learner.
+
+        Args:
+            task_description: Text describing the current task.
+            **kwargs: Forwarded to recommend_procedure (flaw_category,
+                epsilon, rng).
+
+        Returns:
+            recommend_procedure's result dict with an added "roster" key
+            (identical to "steps", named for this call site's semantics),
+            or None if nothing matches.
+        """
+        result = self.recommend_procedure(task_description, **kwargs)
+        if result is None:
+            return None
+        return {**result, "roster": result["steps"]}
+
     def record_procedure_outcome(
         self,
         name: str,
@@ -340,6 +420,26 @@ class GraphMemoryEngine:
                     critiques.append(critique)
                 props["critiques"] = critiques[-_MAX_STORED_CRITIQUES:]
 
+            # Forgetting-curve staleness tracking (MemoryBank, Zhong et al.
+            # 2024, July 2026 topic-page batch): a tenant-wide logical touch
+            # counter, persisted in the DB (not in-memory) so it survives
+            # engine re-instantiation across requests. Each recorded outcome
+            # for ANY of this tenant's procedures bumps the counter, and this
+            # procedure's own last_touch_index is stamped with the new value
+            # -- recommend_procedure uses the gap between "now" and a
+            # candidate's last_touch_index to discount stale strategies.
+            counter_id = f"_touch_counter_{self.tenant_id}"
+            counter_node = db.query(GraphNode).filter(GraphNode.id == counter_id).first()
+            counter_props = (
+                json.loads(str(counter_node.properties)) if counter_node is not None and counter_node.properties else {}
+            )
+            touch_index = counter_props.get("value", 0) + 1
+            db.merge(GraphNode(
+                id=counter_id, tenant_id=self.tenant_id, type="_TouchCounter",
+                properties=json.dumps({"value": touch_index}),
+            ))
+            props["last_touch_index"] = touch_index
+
             procedure_node = GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props))
             db.merge(procedure_node)
             db.commit()
@@ -396,13 +496,17 @@ class GraphMemoryEngine:
         Returns:
             {"name": str, "steps": List[str], "success_count": int,
              "failure_count": int, "success_rate": float,
-             "ema_success_score": float, "flaw_category_counts": dict,
-             "critiques": List[str], "step_credit": dict} for the chosen
-            match (step_credit maps a blamed step string to its own
-            {"success": int, "failure": int} tally -- see
-            record_procedure_outcome's blamed_step param), or None if
-            nothing matches above the threshold, every match has zero
-            recorded attempts, or (with flaw_category set) nothing has that
+             "ema_success_score": float, "recency_decayed_score": float,
+             "flaw_category_counts": dict, "critiques": List[str],
+             "step_credit": dict} for the chosen match (step_credit maps a
+            blamed step string to its own {"success": int, "failure": int}
+            tally -- see record_procedure_outcome's blamed_step param;
+            recency_decayed_score is ema_success_score discounted by
+            logical staleness since this strategy was last recorded
+            against -- see _FORGETTING_DECAY_RATE -- informational only,
+            ranking still uses ema_success_score), or None if nothing
+            matches above the threshold, every match has zero recorded
+            attempts, or (with flaw_category set) nothing has that
             category.
         """
         db = self._get_session()
@@ -417,6 +521,15 @@ class GraphMemoryEngine:
             query_tokens = _tokenize(trigger_pattern)
             if not query_tokens:
                 return None
+
+            counter_node = db.query(GraphNode).filter(
+                GraphNode.id == f"_touch_counter_{self.tenant_id}"
+            ).first()
+            current_touch_index = (
+                json.loads(str(counter_node.properties)).get("value", 0)
+                if counter_node is not None and counter_node.properties
+                else 0
+            )
 
             candidates = []
             for node in procedures:
@@ -438,6 +551,9 @@ class GraphMemoryEngine:
                 ema_score = props.get("ema_success_score")
                 if ema_score is None:
                     ema_score = success / total
+                last_touch_index = props.get("last_touch_index", current_touch_index)
+                staleness = max(0, current_touch_index - last_touch_index)
+                recency_decayed_score = ema_score * math.exp(-_FORGETTING_DECAY_RATE * staleness)
                 candidates.append({
                     "name": props.get("name"),
                     "steps": props.get("steps", []),
@@ -445,6 +561,7 @@ class GraphMemoryEngine:
                     "failure_count": failure,
                     "success_rate": success / total,
                     "ema_success_score": ema_score,
+                    "recency_decayed_score": recency_decayed_score,
                     "flaw_category_counts": flaw_counts,
                     "critiques": props.get("critiques", []),
                     "step_credit": props.get("step_credit", {}),
@@ -463,5 +580,59 @@ class GraphMemoryEngine:
                     chosen = picker.choice(alternatives)
 
             return {k: v for k, v in chosen.items() if k != "_rank_key"}
+        finally:
+            db.close()
+
+    def extract_insights(self) -> List[str]:
+        """ExpeL-style insight extraction (Zhao et al. 2024 "ExpeL: LLM
+        Agents Are Experiential Learners", July 2026 topic-page batch):
+        synthesizes generalizable, cross-strategy observations from
+        accumulated procedural-memory episodes, rather than leaving flaw
+        attribution siloed per-strategy the way record_procedure_outcome
+        and recommend_procedure otherwise do.
+
+        Purely lexical/statistical -- no LLM call, unlike ExpeL's own
+        approach -- so this surfaces recurring flaw categories and blamed
+        steps across ALL of this tenant's recorded strategies as short,
+        templated observations, not free-form natural-language prose a
+        model would need to generate.
+
+        Returns:
+            A list of human-readable insight strings. Empty if nothing in
+            this tenant's procedural memory recurs across more than one
+            strategy.
+        """
+        db = self._get_session()
+        try:
+            procedures = (
+                db.query(GraphNode)
+                .filter(GraphNode.tenant_id == self.tenant_id, GraphNode.type == "Procedure")
+                .all()
+            )
+            category_strategies: Dict[str, set] = {}
+            step_failure_counts: Dict[str, int] = {}
+            for node in procedures:
+                props = json.loads(str(node.properties) if node.properties else "{}")
+                name = props.get("name", "unknown")
+                for category, count in props.get("flaw_category_counts", {}).items():
+                    if count > 0 and category != _UNKNOWN_FLAW_CATEGORY:
+                        category_strategies.setdefault(category, set()).add(name)
+                for step, credit in props.get("step_credit", {}).items():
+                    step_failure_counts[step] = step_failure_counts.get(step, 0) + credit.get("failure", 0)
+
+            insights = []
+            for category, strategies in sorted(category_strategies.items()):
+                if len(strategies) >= _INSIGHT_MIN_STRATEGIES:
+                    insights.append(
+                        f"'{category}' recurs across {len(strategies)} strategies "
+                        f"({', '.join(sorted(strategies))}) -- likely a systemic "
+                        "issue, not one strategy's flaw."
+                    )
+            for step, failures in sorted(step_failure_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+                if failures >= _INSIGHT_MIN_STEP_FAILURES:
+                    insights.append(
+                        f"step '{step}' has been blamed for {failures} failures across recorded strategies."
+                    )
+            return insights
         finally:
             db.close()

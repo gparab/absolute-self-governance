@@ -676,6 +676,124 @@ def test_blamed_step_credit_accumulates_success_and_failure_counts():
     }
 
 
+def test_extract_insights_flags_flaw_category_recurring_across_strategies():
+    tenant = "test_tenant_insights_category"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy_a", trigger_pattern="boundary condition failure",
+        steps=["a"], passed=False, flaw_category="tests_failed",
+    )
+    engine.record_procedure_outcome(
+        name="strategy_b", trigger_pattern="off by one error",
+        steps=["b"], passed=False, flaw_category="tests_failed",
+    )
+
+    insights = engine.extract_insights()
+
+    assert any("tests_failed" in i and "strategy_a" in i and "strategy_b" in i for i in insights)
+
+
+def test_extract_insights_flags_recurring_blamed_step_failures():
+    tenant = "test_tenant_insights_step"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition failure",
+        steps=["lead with QA"], passed=False, blamed_step="lead with QA",
+    )
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition failure",
+        steps=["lead with QA"], passed=False, blamed_step="lead with QA",
+    )
+
+    insights = engine.extract_insights()
+
+    assert any("lead with QA" in i and "2 failures" in i for i in insights)
+
+
+def test_extract_insights_empty_when_nothing_recurs():
+    tenant = "test_tenant_insights_empty"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy_a", trigger_pattern="boundary condition failure",
+        steps=["a"], passed=False, flaw_category="tests_failed",
+    )
+
+    assert engine.extract_insights() == []
+
+
+# --- Forgetting-curve staleness (MemoryBank, July 2026 topic-page batch) ---
+
+def test_recency_decayed_score_equals_ema_for_freshly_touched_strategy():
+    tenant = "test_tenant_forgetting_fresh"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure", steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["recency_decayed_score"] == pytest.approx(result["ema_success_score"])
+
+
+def test_recency_decayed_score_discounts_stale_strategy():
+    """A strategy that hasn't been touched while OTHER strategies in the
+    same tenant accumulated outcomes should rank lower on
+    recency_decayed_score than its raw ema_success_score, since the
+    tenant-wide touch counter advanced without it."""
+    tenant = "test_tenant_forgetting_stale"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_procedure_outcome(
+        name="stale_strategy", trigger_pattern="boundary condition test failure", steps=["a"], passed=True,
+    )
+    # Advance the tenant-wide touch counter with unrelated outcomes.
+    for _ in range(10):
+        engine.record_procedure_outcome(
+            name="other_strategy", trigger_pattern="unrelated database failure", steps=["b"], passed=True,
+        )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["name"] == "stale_strategy"
+    assert result["recency_decayed_score"] < result["ema_success_score"]
+
+
+# --- Team/topology optimization (Dynamic LLM-Agent Network / GPTSwarm-
+# adjacent, July 2026 topic-page batch, reusing the procedural-memory
+# substrate rather than a new graph-topology learner) ---
+
+def test_record_and_recommend_roster_outcome():
+    tenant = "test_tenant_roster"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_roster_outcome(
+        roster=["Backend Wizard", "QA Specialist"],
+        task_description="fix a sqlite concurrency bug",
+        passed=True,
+    )
+
+    result = engine.recommend_roster("sqlite concurrency bug")
+
+    assert result is not None
+    assert result["roster"] == ["Backend Wizard", "QA Specialist"]
+    assert result["roster"] == result["steps"]
+
+
+def test_recommend_roster_returns_none_for_unmatched_task():
+    tenant = "test_tenant_roster_no_match"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+
+    engine.record_roster_outcome(
+        roster=["Backend Wizard"], task_description="sqlite concurrency bug", passed=True,
+    )
+
+    assert engine.recommend_roster("completely unrelated frontend css issue") is None
+
+
 def test_step_credit_defaults_to_empty_when_never_blamed():
     tenant = "test_tenant_step_credit_empty"
     engine = GraphMemoryEngine(tenant_id=tenant)
