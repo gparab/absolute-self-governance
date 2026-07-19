@@ -342,7 +342,14 @@ def handle_demo(args) -> None:
     Args:
         args: Parsed command-line arguments.
     """
+    import logging
     from self_governance.demo import run_demo
+
+    # The demo's whole point is a clean, narrated 30-second read -- every
+    # other subcommand wants its INFO-level consensus/nudger logs, but here
+    # they'd bury the narrated output under ~80 lines of raw log noise
+    # before a first-time visitor ever sees the actual point.
+    logging.getLogger().setLevel(logging.WARNING)
 
     print("ASG demo: no API key required, zero cost, zero setup.\n")
     run_demo(pause_seconds=args.pause)

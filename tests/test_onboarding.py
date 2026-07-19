@@ -145,6 +145,26 @@ def test_cli_demo_runs(capsys):
     assert "ASG demo" in out
 
 
+def test_cli_demo_suppresses_info_log_noise(capsys):
+    """The demo's whole point is a clean, narrated 30-second read -- INFO-
+    level consensus/nudger logs must not bury the narrated output
+    (previously they did: ~80 lines of raw log lines printed before the
+    actual demo text). setup_telemetry() itself no-ops under TESTING=True
+    (see conftest.py), so this checks handle_demo's own explicit level
+    change directly rather than relying on captured stdout."""
+    import logging
+    import sys as _sys
+    from unittest.mock import patch as _patch
+    from self_governance.cli import main
+
+    logging.getLogger().setLevel(logging.INFO)
+    test_args = ["self-governance", "demo", "--pause", "0"]
+    with _patch.object(_sys, "argv", test_args):
+        main()
+
+    assert logging.getLogger().level == logging.WARNING
+
+
 def test_cli_onboard_manual_path(capsys):
     import sys as _sys
     from unittest.mock import patch as _patch
