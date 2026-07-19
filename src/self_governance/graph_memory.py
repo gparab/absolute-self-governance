@@ -100,9 +100,28 @@ _INSIGHT_MIN_STRATEGIES = 2
 _INSIGHT_MIN_STEP_FAILURES = 2
 
 
-def _tokenize(text: str) -> set:
+def tokenize(text: str, stopwords: "set | None" = None) -> set:
+    """Shared lexical tokenizer (ponytail-audit dedup): lowercases and
+    splits on word characters, optionally dropping a stopword set.
+    Reused by consensus.py's groupthink detection with stopwords=None
+    (its exact prior behavior) so both modules share one definition."""
     words = re.findall(r"[a-z0-9]+", text.lower())
-    return {w for w in words if w not in _RELATION_STOPWORDS}
+    if stopwords:
+        return {w for w in words if w not in stopwords}
+    return set(words)
+
+
+def jaccard(a: set, b: set) -> float:
+    """Shared Jaccard-similarity helper (ponytail-audit dedup): the same
+    |intersection|/|union| expression was inlined separately in this
+    module (twice) and in consensus.py's groupthink detection."""
+    if not a and not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _tokenize(text: str) -> set:
+    return tokenize(text, _RELATION_STOPWORDS)
 
 
 class GraphMemoryEngine:
@@ -185,8 +204,8 @@ class GraphMemoryEngine:
                 for prior_id, tokens in prior_tokens:
                     if not tokens or not new_tokens:
                         continue
-                    jaccard = len(tokens & new_tokens) / len(tokens | new_tokens)
-                    if jaccard >= _RELATION_JACCARD_THRESHOLD:
+                    similarity = jaccard(tokens, new_tokens)
+                    if similarity >= _RELATION_JACCARD_THRESHOLD:
                         db.add(GraphEdge(tenant_id=self.tenant_id, source_id=constraint_id, target_id=prior_id, type="RELATES_TO"))
                         db.add(GraphEdge(tenant_id=self.tenant_id, source_id=prior_id, target_id=constraint_id, type="RELATES_TO"))
                 prior_tokens.append((constraint_id, new_tokens))
@@ -537,8 +556,8 @@ class GraphMemoryEngine:
                 candidate_tokens = _tokenize(props.get("trigger_pattern", ""))
                 if not candidate_tokens:
                     continue
-                jaccard = len(query_tokens & candidate_tokens) / len(query_tokens | candidate_tokens)
-                if jaccard < _PROCEDURE_MATCH_THRESHOLD:
+                similarity = jaccard(query_tokens, candidate_tokens)
+                if similarity < _PROCEDURE_MATCH_THRESHOLD:
                     continue
                 success = props.get("success_count", 0)
                 failure = props.get("failure_count", 0)

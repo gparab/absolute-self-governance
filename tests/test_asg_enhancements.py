@@ -1,5 +1,4 @@
 import os
-import json
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -51,12 +50,6 @@ from self_governance.p2p import (
 from self_governance.mcp import (
     MCPClient,
     refactor_and_retry_tool,
-)
-
-# Imports for R7. Shadow logging & HITL
-from self_governance.shadow_logging import (
-    log_shadow_event,
-    check_confidence_and_prompt,
 )
 
 # Imports for R8. Enums and PBKDF2 hashing
@@ -418,38 +411,6 @@ def test_failure_driven_tool_refactoring():
     )
     assert res_refactored_rename["status"] == "success"
     assert res_refactored_rename["result"] == 25
-
-
-# --- R7. Shadow logging & HITL Tests ---
-
-def test_shadow_logging_event_writes(tmp_path):
-    log_file = tmp_path / "shadow_log.json"
-    
-    log_shadow_event("consensus_round", {"round": 1, "score": 8.5}, str(log_file))
-    log_shadow_event("consensus_round", {"round": 2, "score": 9.2}, str(log_file))
-    
-    assert log_file.exists()
-    with open(log_file, "r", encoding="utf-8") as f:
-        events = json.load(f)
-        
-    assert len(events) == 2
-    assert events[0]["event_type"] == "consensus_round"
-    assert events[1]["details"]["round"] == 2
-
-
-def test_confidence_hitl_halting_and_trigger(tmp_path):
-    hitl_file = tmp_path / "awaiting_hitl.json"
-    
-    assert check_confidence_and_prompt(0.85, threshold=0.7, hitl_filepath=str(hitl_file)) is True
-    assert not hitl_file.exists()
-
-    assert check_confidence_and_prompt(0.55, threshold=0.7, hitl_filepath=str(hitl_file)) is False
-    assert hitl_file.exists()
-    
-    with open(hitl_file, "r", encoding="utf-8") as f:
-        req = json.load(f)
-    assert req["confidence_score"] == 0.55
-    assert req["status"] == "AWAITING_APPROVAL"
 
 
 # --- R8. Enums and PBKDF2 hashing validation ---

@@ -9,7 +9,6 @@ import os
 import random
 import math
 import json
-import re
 import itertools
 import time as _time
 import logging
@@ -21,6 +20,7 @@ from self_governance.agency_agents_adapter import get_persona, get_capability_pr
 from self_governance.gemini_adapter import GeminiExecutionAdapter
 from self_governance.metrics import ASG_CONSENSUS_ITERATIONS
 from self_governance.config import OrchestratorConfig
+from self_governance.graph_memory import tokenize as _tokenize, jaccard as _jaccard
 
 logger = logging.getLogger("self_governance.consensus")
 
@@ -28,10 +28,6 @@ logger = logging.getLogger("self_governance.consensus")
 # was obfuscation with a hardcoded key — false security worse than none.
 
 _GROUPTHINK_JACCARD_THRESHOLD = 0.6
-
-
-def _tokenize(text: str) -> set:
-    return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
 def _detect_groupthink(justifications: dict, approved_agents: List[str]) -> bool:
@@ -50,10 +46,7 @@ def _detect_groupthink(justifications: dict, approved_agents: List[str]) -> bool
     if any(not ts for ts in token_sets):
         return False
     pairs = list(itertools.combinations(range(len(token_sets)), 2))
-    similarities = [
-        len(token_sets[i] & token_sets[j]) / len(token_sets[i] | token_sets[j])
-        for i, j in pairs
-    ]
+    similarities = [_jaccard(token_sets[i], token_sets[j]) for i, j in pairs]
     return (sum(similarities) / len(similarities)) >= _GROUPTHINK_JACCARD_THRESHOLD
 
 

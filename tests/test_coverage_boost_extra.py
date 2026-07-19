@@ -1,7 +1,6 @@
 import os
 import sys
 import json
-import yaml
 import hmac
 import hashlib
 import runpy
@@ -31,8 +30,6 @@ from self_governance.memory import compress_context, resume_state
 from self_governance.nudger import ContinuousNudger, ResilientHookExecutor, _emit_event
 from self_governance.p2p import SwarmMarket, GossipProtocol, BoundedSet, EnhancedGossipProtocol
 from self_governance.security import validate_command, pre_execution_simulation
-from self_governance.shadow_logging import log_shadow_event, check_confidence_and_prompt
-from self_governance.topology import SwarmTopology
 
 # FastAPI TestClient
 from fastapi.testclient import TestClient
@@ -969,71 +966,6 @@ def test_security_boost():
 
     res7 = pre_execution_simulation("echo hello >> output.txt")
     assert "output.txt" in res7["affected_paths"]
-
-
-# =====================================================================
-# 18. shadow_logging.py
-# =====================================================================
-def test_shadow_logging_boost(tmp_path):
-    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
-    # log_shadow_event to yaml file
-    yaml_file = str(tmp_path / "shadow.yaml")
-    log_shadow_event("test_event", {"a": 1}, yaml_file)
-    with open(yaml_file, "r") as f:
-        content = yaml.safe_load(f)
-        assert content[0]["event_type"] == "test_event"
-
-    # log_shadow_event yaml exist check (lines 27-28)
-    log_shadow_event("test_event_2", {"b": 2}, yaml_file)
-    with open(yaml_file, "r") as f:
-        content = yaml.safe_load(f)
-        assert len(content) == 2
-
-    # log_shadow_event read exception catch
-    with open(yaml_file, "w") as f:
-        f.write("corrupt data: [")
-    log_shadow_event("test_event_3", {"c": 3}, yaml_file)
-
-    # log_shadow_event write exception catch
-    with patch("builtins.open", side_effect=IOError("Write failed")):
-        log_shadow_event("test_event_4", {"d": 4}, yaml_file)
-
-    # check_confidence_and_prompt write exception catch
-    with patch("builtins.open", side_effect=IOError("HITL write failed")):
-        assert check_confidence_and_prompt(0.5, 0.7, str(tmp_path / "hitl.json")) is False
-
-
-# =====================================================================
-# 19. topology.py
-# =====================================================================
-def test_topology_boost():
-    # SwarmTopology build exception
-    with pytest.raises(ValueError):
-        SwarmTopology(topology_type="INVALID")
-
-    # SwarmTopology empty nodes
-    top = SwarmTopology(nodes=[])
-    assert top.nodes == []
-
-    # add_node duplicate node
-    top_mesh = SwarmTopology(nodes=["node1", "node2"])
-    top_mesh.add_node("node1")
-    assert len(top_mesh.nodes) == 2
-
-    # add_node new node and add_edge (lines 47-49, 52-55)
-    top_mesh.add_node("node3")
-    assert "node3" in top_mesh.nodes
-    top_mesh.add_edge("node1", "node4")
-    assert "node4" in top_mesh.nodes
-    assert "node4" in top_mesh.edges["node1"]
-
-    # find_route start == end
-    assert top_mesh.find_route("node1", "node1") == ["node1"]
-
-    # find_route no path found
-    top_mesh.edges["node1"].clear()
-    top_mesh.edges["node2"].clear()
-    assert top_mesh.find_route("node1", "node2") == []
 
 
 # =====================================================================

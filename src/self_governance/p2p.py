@@ -234,26 +234,27 @@ class GossipProtocol:
 
 
 class BoundedSet:
-    """A set wrapper that maintains a maximum size by evicting the oldest items."""
+    """A set wrapper that maintains a maximum size by evicting the oldest
+    items. Backed by a single dict (insertion-ordered since Python 3.7)
+    instead of a parallel list+set -- eviction is O(1) via next(iter(...))
+    rather than list.pop(0)'s O(n) shift (ponytail-audit dedup)."""
     def __init__(self, max_size: int):
         self.max_size = max_size
-        self._items: list[Any] = []
-        self._set: set[Any] = set()
+        self._items: dict[Any, None] = {}
 
     def add(self, item: Any) -> None:
-        if item in self._set:
+        if item in self._items:
             return
         if len(self._items) >= self.max_size:
-            oldest = self._items.pop(0)
-            self._set.remove(oldest)
-        self._items.append(item)
-        self._set.add(item)
+            oldest = next(iter(self._items))
+            del self._items[oldest]
+        self._items[item] = None
 
     def __len__(self) -> int:
-        return len(self._set)
+        return len(self._items)
 
     def __contains__(self, item: Any) -> bool:
-        return item in self._set
+        return item in self._items
 
 
 class EnhancedGossipProtocol(GossipProtocol):
