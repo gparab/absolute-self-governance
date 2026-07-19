@@ -346,7 +346,15 @@ class ContinuousNudger:
         """
         self.working_directory = working_directory
         self.config = config if config is not None else OrchestratorConfig()
-        self.lock = threading.Lock()
+        # RLock, not Lock: process_handoff() holds this lock for its whole
+        # body and calls trigger_succession() from within it (via
+        # _execute_succession_safely); trigger_succession() itself also
+        # acquires this lock below, since it's the same file-write/graph-
+        # memory critical section a webhook-triggered call (which does NOT
+        # go through process_handoff) can otherwise race against. A plain
+        # Lock would deadlock the file-watcher path on the very first
+        # handoff; RLock lets the same thread re-enter.
+        self.lock = threading.RLock()
         self.last_content: Optional[str] = None
         self.has_transient_error = False
         self.consecutive_transient_errors = 0
@@ -849,6 +857,32 @@ class ContinuousNudger:
             HandoffTypeError: If candidate list has an incorrect type.
             ValueError: If approved roster fails self-critique.
         """
+        # Held for the whole succession: this writes pipeline_artifact.jsonl,
+        # the roster rotation log, and graph memory, the same files/state
+        # process_handoff's file-watcher path touches. Without this lock, a
+        # webhook-triggered succession (github_app.py calls this directly,
+        # not through process_handoff) could race the watchdog thread and
+        # interleave writes. RLock (see __init__) lets process_handoff's own
+        # call into this method re-enter safely.
+        with self.lock:
+            return self._trigger_succession_impl(
+                handoff_content,
+                adapter=adapter,
+                tenant_id=tenant_id,
+                reflection=reflection,
+                extra_facts=extra_facts,
+            )
+
+    def _trigger_succession_impl(
+        self,
+        handoff_content: str,
+        adapter: Optional[Any] = None,
+        tenant_id: Optional[str] = None,
+        reflection: Optional[str] = None,
+        extra_facts: Optional[List[str]] = None,
+    ) -> ConsensusResult:
+        """The actual succession logic, called only through trigger_succession
+        so it always runs under self.lock."""
         try:
             import re
             yaml_content = handoff_content

@@ -23,7 +23,7 @@ from self_governance.learning import track_learning_feedback
 from self_governance.dimensioning import dimension_swarm
 from self_governance.telemetry import new_correlation_id, get_correlation_id
 from self_governance.metrics import ASG_WEBHOOK_EVENTS
-from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage
+from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage, SessionLocal
 from self_governance.auth import rate_limit_tenant, hash_key
 from self_governance.billing import record_usage, calculate_cost
 from self_governance.tracing import tracer
@@ -294,22 +294,27 @@ def _log_token_usage(
     )
 
 
-def _handle_issues_event(payload: dict, tenant: Tenant, db: Session) -> Optional[dict]:
+def _handle_issues_event(payload: dict, tenant_id_str: str) -> Optional[dict]:
     """Handles GitHub 'issues' webhook event by scaling and triggering succession.
+
+    Runs on a worker thread (see the /webhook route's asyncio.to_thread
+    call) -- takes a plain tenant_id string rather than the request's
+    Tenant/Session objects and opens its own local Session here, since
+    SQLAlchemy Session objects are not thread-safe and must not cross a
+    thread boundary alongside the callable that uses them.
 
     Args:
         payload: GitHub issues event payload.
-        tenant: The associated Tenant instance.
-        db: Database session.
+        tenant_id_str: The associated Tenant's id.
 
     Returns:
         An optional dictionary representing the webhook response payload.
     """
-    action = payload.get("action")
-    if action == "opened":
-        # tenant.id is a SQLAlchemy Column[str] attribute; bind it once as
-        # a plain str for every downstream call that expects one.
-        tenant_id_str = str(tenant.id)
+    if payload.get("action") != "opened":
+        return None
+
+    db = SessionLocal()
+    try:
         with tracer.start_as_current_span("process_issue_opened") as span:
             span.set_attribute("tenant_id", tenant_id_str)
             issue = payload.get("issue", {})
@@ -379,7 +384,8 @@ def _handle_issues_event(payload: dict, tenant: Tenant, db: Session) -> Optional
                 "requirements": req_vector,
                 "candidates": candidates,
             }
-    return None
+    finally:
+        db.close()
 
 
 def _handle_pull_request_event(payload: dict) -> Optional[dict]:
@@ -460,9 +466,12 @@ async def github_webhook(
     # directly here would freeze this async endpoint's event loop for that
     # whole duration, blocking every other request (health checks, metrics,
     # concurrent webhooks) on this worker. asyncio.to_thread runs them on a
-    # separate thread instead.
+    # separate thread instead. Only a plain tenant_id string crosses the
+    # thread boundary, not the request-scoped Tenant/Session objects --
+    # SQLAlchemy Sessions are not thread-safe, so _handle_issues_event opens
+    # its own local Session inside the worker thread.
     if event == "issues":
-        res = await asyncio.to_thread(_handle_issues_event, payload, tenant, db)
+        res = await asyncio.to_thread(_handle_issues_event, payload, str(tenant.id))
         if res:
             return res
 

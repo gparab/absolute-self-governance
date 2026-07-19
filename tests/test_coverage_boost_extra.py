@@ -16,7 +16,7 @@ from self_governance.anti_drift import LoopDetector, self_critique
 from self_governance.auth import get_current_tenant_id, authenticate_tenant
 from self_governance.cli import main
 from self_governance.consensus import ConsensusEngine, PBFTConsensusEngine
-from self_governance.db import SovereignMemory, COWMemoryBranch, Tenant
+from self_governance.db import SovereignMemory, COWMemoryBranch
 from self_governance.devserver import _metric_value, dev_app
 from self_governance.economics import analyze_ast_complexity, route_model
 from self_governance.gemini_adapter import GeminiExecutionAdapter, call_safely, call_gemini_with_metadata
@@ -485,9 +485,8 @@ def test_github_app_boost(monkeypatch):
     monkeypatch.setenv("WEBHOOK_SECRET", "sec")
 
     # issues event action != opened
-    db_mock = MagicMock()
     payload = {"action": "closed"}
-    res_issues = _handle_issues_event(payload, Tenant(id="t1"), db_mock)
+    res_issues = _handle_issues_event(payload, "t1")
     assert res_issues is None
 
     # webhook event issues ignored (with exact body signature matching)
@@ -514,8 +513,10 @@ def test_github_app_boost(monkeypatch):
     mock_adapter_inst.completion_tokens = 30
     monkeypatch.setattr("self_governance.gemini_adapter.GeminiExecutionAdapter", mock_adapter_cls)
 
-    with pytest.raises(RuntimeError):
-        _handle_issues_event(payload_opened, Tenant(id="t1"), db_mock)
+    db_mock = MagicMock()
+    with patch("self_governance.github_app.SessionLocal", return_value=db_mock):
+        with pytest.raises(RuntimeError):
+            _handle_issues_event(payload_opened, "t1")
     db_mock.add.assert_called()
 
 

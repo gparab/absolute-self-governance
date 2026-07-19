@@ -373,6 +373,29 @@ def test_execute_succession_safely_forwards_reflection(tmp_path):
     )
 
 
+def test_lock_is_reentrant_so_process_handoffs_nested_call_cannot_deadlock(tmp_path):
+    """process_handoff() holds self.lock for its whole body and calls
+    trigger_succession() from within it; trigger_succession() itself also
+    acquires self.lock (so a webhook-triggered call, which does not go
+    through process_handoff, can't race the file-watcher thread). A plain
+    threading.Lock would deadlock the very first handoff the watcher
+    processes -- this must be an RLock so the same thread can re-enter."""
+    (tmp_path / ".planning").mkdir(parents=True, exist_ok=True)
+    nudger = ContinuousNudger(working_directory=str(tmp_path))
+
+    assert isinstance(nudger.lock, type(threading.RLock()))
+
+    handoff_content = yaml.safe_dump({"status": "COMPLETED", "candidates": ["agent_A"]})
+    # Simulate being inside process_handoff's `with self.lock:` block, then
+    # calling trigger_succession -- must return promptly, not hang.
+    acquired = nudger.lock.acquire(timeout=2)
+    assert acquired, "outer acquire should never itself block"
+    try:
+        nudger.trigger_succession(handoff_content)
+    finally:
+        nudger.lock.release()
+
+
 def test_trigger_succession_writes_reflection_as_constraint(tmp_path):
     from unittest.mock import patch
 

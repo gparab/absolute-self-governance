@@ -246,17 +246,19 @@ def test_github_webhook_issues_opened_missing_issue_key():
         # 'issue' key is omitted
     }
     db_mock = MagicMock()
-    tenant_mock = MagicMock()
-    tenant_mock.id = "t_test"
-    
-    # Run _handle_issues_event directly to check exception paths
-    with patch("self_governance.github_app.nudger.trigger_succession") as mock_trigger:
+
+    # Run _handle_issues_event directly to check exception paths.
+    # _handle_issues_event opens its own SessionLocal() internally (runs on
+    # a worker thread now -- SQLAlchemy Sessions aren't thread-safe), so the
+    # mock session is injected by patching SessionLocal itself.
+    with patch("self_governance.github_app.nudger.trigger_succession") as mock_trigger, \
+         patch("self_governance.github_app.SessionLocal", return_value=db_mock):
         mock_trigger.return_value = MagicMock(prompt_tokens=100, completion_tokens=50)
         # Call _log_ctx to verify it runs without error
         _ = _log_ctx(tenant_id="t_test", event_type="issues")
-        
+
         # This should execute without raising KeyErrors or crashes
-        result = _handle_issues_event(payload, tenant_mock, db_mock)
+        result = _handle_issues_event(payload, "t_test")
         assert result is not None
         assert result["status"] == "success"
 

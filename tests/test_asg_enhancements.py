@@ -212,6 +212,18 @@ def test_docker_args_formatting():
         mount_arg = [arg for arg in docker_cmd if ":/work:ro" in arg]
         assert len(mount_arg) == 1
 
+        # Zombie-container fix: the container's own entrypoint must be
+        # coreutils `timeout`, not pytest directly -- subprocess.run's
+        # timeout only kills the local `docker run` client (an uncatchable
+        # SIGKILL that can't forward a stop to the daemon), so without an
+        # internal timeout a hung test run leaks a container on the host.
+        entrypoint_idx = docker_cmd.index("--entrypoint")
+        assert docker_cmd[entrypoint_idx + 1] == "timeout"
+        image_idx = docker_cmd.index("ghcr.io/gparab/absolute-self-governance:latest")
+        assert docker_cmd[image_idx + 1] == "25"
+        assert docker_cmd[image_idx + 2] == "pytest"
+        assert docker_cmd[image_idx + 3] == "tests/test_hardening.py"
+
 
 def test_least_privilege_command_path_whitelists(tmp_path):
     # Command validation

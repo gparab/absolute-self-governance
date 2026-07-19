@@ -791,6 +791,18 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
         try:
             # Mount the workspace at /work (NOT /app — that would bury the
             # image's venv) and override the entrypoint to run pytest.
+            #
+            # The entrypoint is coreutils `timeout`, not pytest directly:
+            # subprocess.run's own timeout below only kills the local
+            # `docker run` CLIENT process (via an uncatchable SIGKILL, so
+            # the client can't forward a stop/kill to the daemon on the way
+            # out) -- the container itself keeps running server-side,
+            # leaking a zombie container per timeout. Running `timeout 25
+            # pytest ...` as the container's own PID 1 makes the container
+            # terminate itself well inside Python's 30s budget for the
+            # timing-out case, so subprocess.run's timeout becomes a
+            # fallback for a hung `docker run` invocation itself, not the
+            # normal way a slow test suite gets stopped.
             docker_cmd = [
                 "docker",
                 "run",
@@ -805,11 +817,13 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
                 "-w",
                 "/work",
                 "--entrypoint",
-                "pytest",
+                "timeout",
                 os.getenv(
                     "ASG_SANDBOX_IMAGE",
                     "ghcr.io/gparab/absolute-self-governance:latest",
                 ),
+                "25",
+                "pytest",
             ]
             if test_target:
                 docker_cmd.append(test_target)
