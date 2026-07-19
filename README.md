@@ -30,6 +30,21 @@ OpenAI-compatible API — Claude, GPT, Llama, or any other OpenRouter-hosted
 model, no code changes, no `--provider` flag. Provider selection is just a
 key-prefix check (`src/self_governance/providers.py`).
 
+### MCP server
+
+Want an MCP client (Claude Desktop, Claude Code, Cursor, etc.) to call ASG's
+dynamic swarm-sizing math directly as a tool? Run:
+
+```bash
+self-governance mcp-server
+```
+
+and add it to your client's MCP config (stdio transport). Exposes one tool
+today, `dimension_swarm_tool` — no LLM call, no API key, no cost, the same
+math `demo`/`dimension` run. Deliberately scoped to that one safe,
+zero-side-effect capability; consensus, procedural memory, and anything
+that spends money or touches disk aren't exposed as MCP tools yet.
+
 ## Proof: three honest benchmark passes, not one flattering one
 
 <p align="center">
@@ -276,8 +291,9 @@ absolute-self-governance/
 │       ├── metrics.py         # Prometheus metrics
 │       ├── tracing.py         # OpenTelemetry (OTLP or console)
 │       ├── telemetry.py       # Correlation IDs & structured logging
+│       ├── mcp_server.py      # MCP server: dimension_swarm as a tool
 │       └── cli.py             # CLI subcommands
-├── tests/                     # 573 tests (unit, e2e, stress, multi-tenancy)
+├── tests/                     # 585 tests (unit, e2e, stress, multi-tenancy)
 ├── telemetry/                 # Real-world run harnesses & raw results
 ├── alembic/                   # Database migrations
 ├── Dockerfile                 # Multi-stage image (non-root)
@@ -425,7 +441,7 @@ self-governance session-restore --file my_session.json --workdir .
 
 ### Running the Test Suite
 
-The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **573 total test cases**.
+The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **585 total test cases**.
 
 #### Run all tests using `pytest`
 ```bash

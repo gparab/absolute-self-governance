@@ -132,6 +132,21 @@ def test_run_onboarding_falls_back_to_manual_on_registration_failure():
     assert "bad token" in result["webhook_registration_error"]
 
 
+def test_cli_mcp_server_delegates_to_mcp_server_module(monkeypatch):
+    import sys as _sys
+    from unittest.mock import patch as _patch, MagicMock
+    from self_governance.cli import main
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("self_governance.mcp_server.main", mock_run)
+
+    test_args = ["self-governance", "mcp-server"]
+    with _patch.object(_sys, "argv", test_args):
+        main()
+
+    assert mock_run.called
+
+
 def test_cli_demo_runs(capsys):
     import sys as _sys
     from unittest.mock import patch as _patch

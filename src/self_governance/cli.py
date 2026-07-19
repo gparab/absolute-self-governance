@@ -93,6 +93,14 @@ def parse_args():
         help="Seconds to pause between scenarios (default: 3.0).",
     )
 
+    # mcp-server subcommand: exposes dimension_swarm as an MCP tool over
+    # stdio, so any MCP client (Claude Desktop, Claude Code, Cursor, etc.)
+    # can call ASG's swarm-sizing math directly.
+    subparsers.add_parser(
+        "mcp-server",
+        help="Run ASG's dynamic swarm-sizing tool as an MCP server over stdio",
+    )
+
     # onboard subcommand: guided tenant + webhook setup, replacing manual
     # config-file editing and clicking through GitHub Settings by hand
     parser_onboard = subparsers.add_parser(
@@ -353,6 +361,17 @@ def handle_demo(args) -> None:
 
     print("ASG demo: no API key required, zero cost, zero setup.\n")
     run_demo(pause_seconds=args.pause)
+
+
+def handle_mcp_server(args) -> None:
+    """Runs ASG's dynamic swarm-sizing tool as an MCP server over stdio.
+
+    Args:
+        args: Parsed command-line arguments (unused; no options today).
+    """
+    from self_governance.mcp_server import main as run_mcp_server
+
+    run_mcp_server()
 
 
 def handle_onboard(args) -> None:
@@ -721,6 +740,7 @@ def main():
         "stats": lambda: handle_stats(args),
         "dev": lambda: handle_dev(args, config),
         "demo": lambda: handle_demo(args),
+        "mcp-server": lambda: handle_mcp_server(args),
         "onboard": lambda: handle_onboard(args),
 
         "session-save": lambda: handle_session_save(args, config),
