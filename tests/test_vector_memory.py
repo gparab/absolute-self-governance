@@ -135,6 +135,54 @@ def test_agent_db_batch_insert():
     assert len(db.namespaces["telemetry"].nodes) == 120
 
 
+def test_hnsw_index_delete_excludes_node_from_search_results():
+    """Tombstone-based delete (HNSWIndex has no way to prune stale/
+    decommissioned vectors before this): a deleted node must never appear
+    in search() results, even though it's still present in the graph for
+    traversal/connectivity."""
+    index = HNSWIndex(M=4, M0=8, efConstruction=10, efSearch=10)
+    index.insert(1, [1.0, 0.0], level=0)
+    index.insert(2, [0.9, 0.1], level=0)
+    index.insert(3, [0.0, 1.0], level=0)
+
+    index.delete(2)
+    results = index.search([1.0, 0.0], k=3)
+    result_ids = [node_id for _, node_id in results]
+
+    assert 2 not in result_ids
+    assert 1 in result_ids
+
+
+def test_agent_db_delete_removes_bookkeeping_and_search_visibility():
+    db = AgentDB()
+    db.insert("patterns", "stale_memory", [1.0, 0.0])
+    db.insert("patterns", "fresh_memory", [0.0, 1.0])
+
+    removed = db.delete("patterns", "stale_memory")
+
+    assert removed is True
+    assert "stale_memory" not in db.key_to_id["patterns"]
+    assert "stale_memory" not in [r.key for r in db.records["patterns"].values()]
+
+    results = db.namespaces["patterns"].search([1.0, 0.0], k=2)
+    result_keys = [db.id_to_key["patterns"].get(node_id) for _, node_id in results]
+    assert "stale_memory" not in result_keys
+    assert "fresh_memory" in result_keys
+
+
+def test_agent_db_delete_returns_false_for_unknown_key():
+    db = AgentDB()
+    db.insert("patterns", "known", [1.0, 0.0])
+
+    assert db.delete("patterns", "never_inserted") is False
+
+
+def test_agent_db_delete_rejects_invalid_namespace():
+    db = AgentDB()
+    with pytest.raises(ValueError, match="Invalid namespace"):
+        db.delete("not_a_real_namespace", "key")
+
+
 # ----------------------------------------------------------------------
 # 3. ENCRYPTION AT REST TESTS
 # ----------------------------------------------------------------------

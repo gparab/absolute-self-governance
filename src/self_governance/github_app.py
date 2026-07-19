@@ -5,6 +5,7 @@ health monitoring, and Prometheus metrics.
 """
 
 import os
+import asyncio
 import hmac
 import hashlib
 import logging
@@ -453,13 +454,20 @@ async def github_webhook(
     if event == "ping":
         return {"status": "ok", "msg": "pong"}
 
+    # _handle_issues_event/_handle_pull_request_event are synchronous and do
+    # real blocking work (succession's LLM calls, DB writes, and the test
+    # sandbox's subprocess.run with up to a 30s timeout) -- calling them
+    # directly here would freeze this async endpoint's event loop for that
+    # whole duration, blocking every other request (health checks, metrics,
+    # concurrent webhooks) on this worker. asyncio.to_thread runs them on a
+    # separate thread instead.
     if event == "issues":
-        res = _handle_issues_event(payload, tenant, db)
+        res = await asyncio.to_thread(_handle_issues_event, payload, tenant, db)
         if res:
             return res
 
     if event == "pull_request":
-        res = _handle_pull_request_event(payload)
+        res = await asyncio.to_thread(_handle_pull_request_event, payload)
         if res:
             return res
 

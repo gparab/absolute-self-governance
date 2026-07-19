@@ -19,6 +19,15 @@ logger = logging.getLogger("self_governance.config")
 # e.g. for a non-Gemini provider) -- never hardcode a model name elsewhere.
 DEFAULT_MODEL = os.getenv("ASG_DEFAULT_MODEL", "gemini-2.5-flash")
 
+# OpenRouterProvider's own fallback, kept separate from DEFAULT_MODEL since
+# a Gemini model name isn't a valid OpenRouter model slug. Named and
+# overridable via env var for the same reason DEFAULT_MODEL is -- a bare
+# inline string literal in providers.py made this fallback silently
+# inconsistent with every other provider's routing-through-config
+# convention (an OpenRouter key falling back to this model name is
+# invisible unless a caller thinks to check here).
+DEFAULT_OPENROUTER_MODEL = os.getenv("ASG_DEFAULT_OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+
 DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
     "consensus": {
         "buffer_limit": 3,

@@ -378,6 +378,24 @@ class HNSWIndex:
         self.max_level: int = -1
         self.nodes: Dict[int, Dict[str, Any]] = {}  # node_id -> {"vector": list[float], "level": int, "connections": dict[int, list[int]]}
         self.max_level_limit = 16
+        # Tombstones (not physical removal): rewiring neighbor lists across
+        # every layer to physically excise a node is nontrivial and easy to
+        # get wrong; tombstoning is the standard HNSW approach for deletion
+        # -- the node stays in the graph for traversal/connectivity but is
+        # filtered out of search() results. Not yet included in
+        # serialize()/deserialize()'s binary format (a format-version bump
+        # would be needed), so a deleted node currently reappears in results
+        # after a save/reload round-trip -- a known limitation, not silently
+        # claimed as fully solved.
+        self.deleted: Set[int] = set()
+
+    def delete(self, node_id: int) -> None:
+        """Tombstones a node so it's excluded from future search() results.
+
+        Args:
+            node_id: The node identifier to remove from result visibility.
+        """
+        self.deleted.add(node_id)
 
     @staticmethod
     def normalize(v: List[float]) -> List[float]:
@@ -542,8 +560,14 @@ class HNSWIndex:
             candidates = self.search_layer(q_vec, curr_ep, ef=1, layer=lvl)
             if candidates:
                 curr_ep = {candidates[0][1]}
-        results = self.search_layer(q_vec, curr_ep, ef=max(self.efSearch, k), layer=0)
-        return results[:k]
+        # Over-fetch past k so filtering out tombstoned nodes below still
+        # has a fair chance of returning k live results (deleted nodes are
+        # not stripped from search_layer's own graph traversal, only from
+        # what's ultimately returned).
+        overfetch = min(len(self.deleted), 50)  # bounded so mass deletions can't blow up search cost
+        results = self.search_layer(q_vec, curr_ep, ef=max(self.efSearch, k) + overfetch, layer=0)
+        live_results = [r for r in results if r[1] not in self.deleted]
+        return live_results[:k]
 
     def serialize(self) -> bytes:
         """Serializes the index into a binary byte representation.
@@ -854,6 +878,36 @@ class AgentDB:
         index.insert(node_id, vector)
         self.records[namespace][node_id] = MemoryRecord(key, vector, namespace, timestamp, metadata)
         return node_id
+
+    def delete(self, namespace: str, key: str) -> bool:
+        """Removes a memory entry: tombstones its vector in the namespace's
+        HNSWIndex (see HNSWIndex.delete) and drops its bookkeeping entries,
+        so a decommissioned/fully-decayed memory stops showing up in search
+        results and stops holding a slot in key_to_id/id_to_key/records.
+
+        Args:
+            namespace: Target namespace key.
+            key: The identifiable text key to remove.
+
+        Returns:
+            True if a matching entry was found and removed, False if the
+            key wasn't present in this namespace.
+
+        Raises:
+            ValueError: If the namespace is not supported.
+        """
+        if namespace not in self.namespaces:
+            raise ValueError(f"Invalid namespace: {namespace}")
+
+        key_to_id = self.key_to_id[namespace]
+        if key not in key_to_id:
+            return False
+
+        node_id = key_to_id.pop(key)
+        self.id_to_key[namespace].pop(node_id, None)
+        self.records[namespace].pop(node_id, None)
+        self.namespaces[namespace].delete(node_id)
+        return True
 
     def batch_insert(self, namespace: str, items: List[dict]) -> List[int]:
         """Inserts a batch list of dictionaries into a namespace.

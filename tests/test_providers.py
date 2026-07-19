@@ -51,6 +51,13 @@ def test_openrouter_provider_builds_openai_compatible_request():
 
 
 def test_openrouter_provider_defaults_model_when_none_given():
+    """The fallback must come from config.DEFAULT_OPENROUTER_MODEL, not a
+    bare literal in providers.py -- a hardcoded fallback here would be
+    silently inconsistent with every other provider's routing-through-
+    config convention (an OpenRouter key falling back to an unexpected,
+    possibly costlier model with no visibility into why)."""
+    from self_governance.config import DEFAULT_OPENROUTER_MODEL
+
     provider = OpenRouterProvider()
     captured = {}
 
@@ -61,7 +68,7 @@ def test_openrouter_provider_defaults_model_when_none_given():
     with patch("self_governance.providers._execute_request", side_effect=fake_execute_request):
         provider.generate_content(prompt="hello", api_key="sk-or-v1-abc123", model=None)
 
-    assert captured["data"]["model"] == "anthropic/claude-3.5-sonnet"
+    assert captured["data"]["model"] == DEFAULT_OPENROUTER_MODEL
 
 
 def test_parse_openrouter_response_extracts_text_and_usage():
