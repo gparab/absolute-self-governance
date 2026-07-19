@@ -1,6 +1,8 @@
 """LLM Provider Abstraction module.
 
-Provides a unified interface for calling different LLM APIs (Gemini, Anthropic/OpenRouter).
+Provides a unified interface for calling different LLM APIs: Gemini
+natively, or any OpenRouter-hosted model (Claude, GPT, Llama, etc.) via an
+OpenRouter API key -- see get_provider().
 """
 
 import json
@@ -82,7 +84,12 @@ class GeminiProvider(LLMProvider):
 
         return _execute_request(url, headers, data, parse_gemini_response)
 
-class AnthropicProvider(LLMProvider):
+class OpenRouterProvider(LLMProvider):
+    """Routes through OpenRouter's unified, OpenAI-compatible API, giving
+    access to Claude, GPT, Llama, and any other OpenRouter-hosted model
+    through a single OpenRouter API key -- not Anthropic-specific despite
+    this module's prior class name."""
+
     def generate_content(
         self,
         prompt: str,
@@ -126,7 +133,7 @@ class AnthropicProvider(LLMProvider):
         if response_mime_type == "application/json" or response_schema:
             data["response_format"] = {"type": "json_object"}
             
-        return _execute_request(url, headers, data, parse_anthropic_response)
+        return _execute_request(url, headers, data, parse_openrouter_response)
 
 def parse_gemini_response(res_data: Dict[str, Any]) -> Dict[str, Any]:
     candidates = res_data.get("candidates", [])
@@ -150,7 +157,7 @@ def parse_gemini_response(res_data: Dict[str, Any]) -> Dict[str, Any]:
         "finish_reason": finish_reason,
     }
 
-def parse_anthropic_response(res_data: Dict[str, Any]) -> Dict[str, Any]:
+def parse_openrouter_response(res_data: Dict[str, Any]) -> Dict[str, Any]:
     choices = res_data.get("choices", [])
     usage_metadata = res_data.get("usage", {})
     prompt_tokens = usage_metadata.get("prompt_tokens", 0)
@@ -215,6 +222,10 @@ def _execute_request(url: str, headers: Dict[str, str], data: Dict[str, Any], pa
     }
 
 def get_provider(api_key: Optional[str] = None, model: Optional[str] = None) -> LLMProvider:
+    """Dispatches on the API key's own prefix, so no separate --provider
+    flag is needed: an OpenRouter key (sk-or-...) routes through
+    OpenRouterProvider (Claude, GPT, Llama, or any other OpenRouter-hosted
+    model); anything else routes through GeminiProvider."""
     if api_key and api_key.startswith("sk-or-"):
-        return AnthropicProvider()
+        return OpenRouterProvider()
     return GeminiProvider()

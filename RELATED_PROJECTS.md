@@ -39,10 +39,13 @@ authoritative documentation.
 ## Libraries that could extend this repo (not currently dependencies)
 
 - **[LiteLLM](https://github.com/BerriAI/litellm)** — unified gateway to 100+
-  LLM providers with built-in cost tracking and retries. This repo currently
-  hand-rolls `urllib` calls to a single provider (`gemini_adapter.py`);
-  LiteLLM would let `model_default`/`model_review`/etc. address other
-  providers with minimal code change.
+  LLM providers with built-in cost tracking and retries. This repo already
+  routes through more than one provider (`providers.py`'s `get_provider`
+  dispatches Gemini natively or any OpenRouter-hosted model by API key
+  prefix), but both paths still hand-roll `urllib` calls with custom
+  retry logic; LiteLLM would let `model_default`/`model_review`/etc.
+  address the full 100+-provider list through one battle-tested client
+  instead of two bespoke ones.
 - **[level12/pals](https://github.com/level12/pals)** — PostgreSQL advisory
   locks as a context manager. The nudger is documented as single-instance
   because coordination is a local `threading.Lock`; since this project

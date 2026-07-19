@@ -24,6 +24,12 @@ Once you have a Gemini key:
 self-governance dev          # watches ./handoff.md, live monitor at http://127.0.0.1:8642
 ```
 
+Not on Gemini? Set `GEMINI_API_KEY` to an [OpenRouter](https://openrouter.ai) key
+instead (`sk-or-...`) and every LLM call routes through OpenRouter's
+OpenAI-compatible API — Claude, GPT, Llama, or any other OpenRouter-hosted
+model, no code changes, no `--provider` flag. Provider selection is just a
+key-prefix check (`src/self_governance/providers.py`).
+
 ## Proof: three honest benchmark passes, not one flattering one
 
 <p align="center">
