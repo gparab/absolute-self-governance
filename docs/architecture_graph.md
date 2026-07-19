@@ -12,7 +12,6 @@ graph TD
     learning_py["learning.py"]
     p2p_py["p2p.py"]
     economics_py["economics.py"]
-    topology_py["topology.py"]
     models_py["models.py"]
     gemini_adapter_py["gemini_adapter.py"]
     db_py["db.py"]
@@ -57,7 +56,6 @@ graph TD
     devserver_py -->|"authenticate / rate limit check"| auth_py
 
     %% Data Dependency Edges (dashed, Arrow)
-    cli_py -.->|"queries active topologies"| db_py
     cli_py -.->|"writes live constraints"| interrupt_file
     nudger_py -.->|"reads / deletes constraints"| interrupt_file
     nudger_py -.->|"reads candidate scopes"| handoff_file
@@ -72,7 +70,6 @@ graph TD
     billing_py -.->|"writes token costs"| db_py
     graph_memory_py -.->|"appends session nodes & edges"| db_py
     devserver_py -.->|"reads token usage & statistics"| db_py
-    topology_py -.->|"reads/writes topologies"| db_py
 
     %% Legend Subgraph
     subgraph Legend

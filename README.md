@@ -419,7 +419,7 @@ self-governance session-restore --file my_session.json --workdir .
 
 ### Running the Test Suite
 
-The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **129 total test cases**.
+The test suite validates correctness across Feature Coverage, Boundary Cases, Cross-Feature Combinations, Real-World Workloads, Observability, and Stress/Concurrency with **573 total test cases**.
 
 #### Run all tests using `pytest`
 ```bash
