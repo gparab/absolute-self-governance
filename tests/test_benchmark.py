@@ -8,6 +8,9 @@ from self_governance.benchmark import (
     run_benchmark_parallel,
     run_asg_mode,
     load_benchmark_tasks,
+    task_canary_string,
+    check_canary_contamination,
+    _detect_weak_acceptance_test,
 )
 from self_governance.cli import main
 
@@ -327,6 +330,79 @@ def test_detect_reward_hacking_not_flagged_for_long_files():
     written = {"impl.py": "\n".join([f"x{i} = {i}" for i in range(10)]) + "\n    return 42\n"}
 
     assert _detect_reward_hacking(test_code, written) is False
+
+
+# --- research.google survey: weak-acceptance-test pre-check (MONA) ---
+
+def test_detect_weak_acceptance_test_flags_no_assertions():
+    assert _detect_weak_acceptance_test("def test_x():\n    pass\n") is True
+
+
+def test_detect_weak_acceptance_test_flags_trivial_assert_true():
+    assert _detect_weak_acceptance_test("def test_x():\n    assert True\n") is True
+
+
+def test_detect_weak_acceptance_test_not_flagged_for_real_assertion():
+    test_code = "def test_x():\n    assert compute(2, 3) == 5\n"
+    assert _detect_weak_acceptance_test(test_code) is False
+
+
+def test_detect_weak_acceptance_test_not_flagged_when_only_some_asserts_trivial():
+    test_code = (
+        "def test_x():\n"
+        "    assert True\n"
+        "    assert compute() == 5\n"
+    )
+    assert _detect_weak_acceptance_test(test_code) is False
+
+
+# --- research.google survey: contamination canary ---
+
+def test_task_canary_string_deterministic_and_unique_per_task():
+    canary_a1 = task_canary_string("task_a")
+    canary_a2 = task_canary_string("task_a")
+    canary_b = task_canary_string("task_b")
+
+    assert canary_a1 == canary_a2
+    assert canary_a1 != canary_b
+    assert canary_a1.startswith("ASG-BENCHMARK-CANARY-")
+
+
+def test_check_canary_contamination_flags_verbatim_leak():
+    from unittest.mock import MagicMock
+
+    task = {
+        "id": "task_leaky",
+        "description": "Implement a thread-safe LRU cache with eviction.",
+        "test_code": "def test_x():\n    assert cache.get('a') is None\n",
+    }
+    mock_adapter = MagicMock()
+    mock_adapter._call_gemini_and_track.return_value = (
+        "Sure! This relates to: Implement a thread-safe LRU cache with eviction."
+    )
+
+    result = check_canary_contamination(mock_adapter, task)
+
+    assert result["contaminated"] is True
+    assert result["canary"] == task_canary_string("task_leaky")
+
+
+def test_check_canary_contamination_not_flagged_for_unrelated_completion():
+    from unittest.mock import MagicMock
+
+    task = {
+        "id": "task_clean",
+        "description": "Implement a thread-safe LRU cache with eviction.",
+        "test_code": "def test_x():\n    assert cache.get('a') is None\n",
+    }
+    mock_adapter = MagicMock()
+    mock_adapter._call_gemini_and_track.return_value = (
+        "I don't recognize this string. Could you provide more context?"
+    )
+
+    result = check_canary_contamination(mock_adapter, task)
+
+    assert result["contaminated"] is False
 
 
 def test_asg_mode_flags_reward_hacking_suspected_on_hardcoded_pass(monkeypatch, tmp_path):

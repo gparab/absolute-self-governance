@@ -265,6 +265,42 @@ def test_consensus_engine_llm_score_parsing():
 
 
 # --- July 2026 topic-page batch, papers-of-papers research: items 1-4 ---
+# --- research.google survey: task-decomposability heuristic ---
+
+def test_estimate_task_decomposability_high_for_conjunctive_bullet_list():
+    from self_governance.consensus import estimate_task_decomposability
+
+    description = (
+        "Add multi-tenant billing and per-tenant rate limiting and audit logging.\n"
+        "- Track usage per tenant\n"
+        "- Enforce a configurable rate limit\n"
+        "- Log every billing event"
+    )
+    score = estimate_task_decomposability(description)
+
+    assert score > 0.5
+
+
+def test_estimate_task_decomposability_low_for_sequential_chain():
+    from self_governance.consensus import estimate_task_decomposability
+
+    description = (
+        "First, parse the config file. Then validate the schema. "
+        "Once validated, apply the migration, and finally verify the result "
+        "depends on the migration having completed."
+    )
+    score = estimate_task_decomposability(description)
+
+    assert score < 0.5
+
+
+def test_estimate_task_decomposability_defaults_to_midpoint_with_no_signal():
+    from self_governance.consensus import estimate_task_decomposability
+
+    assert estimate_task_decomposability("Fix a typo in the README.") == 0.5
+    assert estimate_task_decomposability("") == 0.5
+    assert estimate_task_decomposability("   ") == 0.5
+
 
 def test_weighted_average_defaults_to_flat_mean():
     from self_governance.consensus import _weighted_average

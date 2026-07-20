@@ -44,6 +44,19 @@ _RELATION_SCAN_LIMIT = 200
 _PROCEDURE_MATCH_THRESHOLD = 0.3
 _PROCEDURE_SCAN_LIMIT = 200
 
+# Sufficient-context gating (Google Research, "Sufficient Context: A New
+# Lens on Retrieval Augmented Generation Systems", ICLR 2025; research.google
+# survey, July 2026): passing the bare match threshold only means a
+# candidate is *present*, not that it's a confident enough match to act on
+# -- their finding is that flagging marginal retrieval and abstaining
+# (or downgrading confidence) beats always trusting whatever cleared the
+# cutoff. A candidate needs to clear the threshold by this extra margin to
+# count as context_sufficient=True; candidates between the bare threshold
+# and this margin are still returned (ranking is unchanged) but flagged so
+# a caller can choose to treat a marginal match more like an UNKNOWN-tagged
+# fact than a FACT-tagged one.
+_SUFFICIENT_CONTEXT_MARGIN = 0.15
+
 # Procedural memory extension (research synthesis of SwarmAgentic (EMNLP
 # 2025), AgentNet (NeurIPS 2025), and a survey on LLM multi-agent systems
 # (Vicinagearth 2024): three independent papers converge on the same gap in
@@ -517,16 +530,22 @@ class GraphMemoryEngine:
              "failure_count": int, "success_rate": float,
              "ema_success_score": float, "recency_decayed_score": float,
              "flaw_category_counts": dict, "critiques": List[str],
-             "step_credit": dict} for the chosen match (step_credit maps a
-            blamed step string to its own {"success": int, "failure": int}
-            tally -- see record_procedure_outcome's blamed_step param;
-            recency_decayed_score is ema_success_score discounted by
-            logical staleness since this strategy was last recorded
-            against -- see _FORGETTING_DECAY_RATE -- informational only,
-            ranking still uses ema_success_score), or None if nothing
-            matches above the threshold, every match has zero recorded
-            attempts, or (with flaw_category set) nothing has that
-            category.
+             "step_credit": dict, "context_sufficient": bool,
+             "match_similarity": float} for the chosen match (step_credit
+            maps a blamed step string to its own {"success": int,
+            "failure": int} tally -- see record_procedure_outcome's
+            blamed_step param; recency_decayed_score is ema_success_score
+            discounted by logical staleness since this strategy was last
+            recorded against -- see _FORGETTING_DECAY_RATE -- both
+            informational only, ranking still uses ema_success_score;
+            context_sufficient is False when the match only barely cleared
+            _PROCEDURE_MATCH_THRESHOLD -- see _SUFFICIENT_CONTEXT_MARGIN --
+            a caller that wants Google Research's "abstain on insufficient
+            context" behavior should treat a context_sufficient=False
+            recommendation the way it treats an UNKNOWN-tagged fact, not
+            a confident match), or None if nothing matches above the
+            threshold, every match has zero recorded attempts, or (with
+            flaw_category set) nothing has that category.
         """
         db = self._get_session()
         try:
@@ -584,6 +603,8 @@ class GraphMemoryEngine:
                     "flaw_category_counts": flaw_counts,
                     "critiques": props.get("critiques", []),
                     "step_credit": props.get("step_credit", {}),
+                    "context_sufficient": similarity >= _PROCEDURE_MATCH_THRESHOLD + _SUFFICIENT_CONTEXT_MARGIN,
+                    "match_similarity": similarity,
                     "_rank_key": (ema_score, total),
                 })
 

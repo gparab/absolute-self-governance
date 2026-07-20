@@ -472,6 +472,45 @@ def test_recommend_procedure_falls_back_to_success_rate_when_ema_field_absent():
     assert result["ema_success_score"] == 0.75
 
 
+def test_recommend_procedure_flags_context_sufficient_for_strong_match():
+    """Sufficient-context gating (Google Research ICLR 2025, research.google
+    survey, July 2026): a near-identical trigger_pattern match must be
+    flagged context_sufficient=True."""
+    tenant = "test_tenant_context_sufficient_strong"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition test failure",
+        steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result["context_sufficient"] is True
+    assert result["match_similarity"] == pytest.approx(1.0)
+
+
+def test_recommend_procedure_flags_context_insufficient_for_marginal_match():
+    """A match that only barely clears _PROCEDURE_MATCH_THRESHOLD (0.3) but
+    doesn't clear threshold + _SUFFICIENT_CONTEXT_MARGIN (0.45) must still
+    be returned (ranking unaffected) but flagged context_sufficient=False,
+    so a caller can treat it like an UNKNOWN-tagged fact rather than a
+    confident recommendation."""
+    tenant = "test_tenant_context_sufficient_marginal"
+    engine = GraphMemoryEngine(tenant_id=tenant)
+    # jaccard({boundary,condition,test,failure}, {boundary,condition,failure,
+    # extra,additional,words,here}) == 3/8 == 0.375 -- above 0.3, below 0.45.
+    engine.record_procedure_outcome(
+        name="strategy", trigger_pattern="boundary condition failure extra additional words here",
+        steps=["a"], passed=True,
+    )
+
+    result = engine.recommend_procedure("boundary condition test failure")
+
+    assert result is not None
+    assert result["match_similarity"] == pytest.approx(0.375)
+    assert result["context_sufficient"] is False
+
+
 def test_recommend_procedure_default_epsilon_always_returns_best():
     """epsilon=0.0 (the default) must behave identically to before this
     feature existed -- pure exploitation, no randomness."""

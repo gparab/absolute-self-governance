@@ -33,6 +33,72 @@ def _task_content_hash(task: Dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+# Contamination canary (Google/Bar-Ilan, "Stop Uploading Test Data in
+# Plain Text", EMNLP 2023, research.google survey, July 2026 topic-page
+# batch): a real, non-hypothetical risk for ASG specifically -- every
+# benchmark task in this repo is published in plaintext in a public
+# GitHub repo, so a model trained/fine-tuned on scraped GitHub data could
+# already "know" a task's expected answer independent of ASG's own
+# pipeline mechanics, inflating pass rates for reasons that have nothing
+# to do with what's being measured. A canary is a unique, never-otherwise-
+# used string deterministically derived from the task id; if a model can
+# reproduce fragments of the task's actual description/test_code when
+# prompted with ONLY the bare canary (no task context at all), that's a
+# strong signal the task leaked into training data somewhere.
+_CANARY_PREFIX = "ASG-BENCHMARK-CANARY-"
+
+
+def task_canary_string(task_id: str) -> str:
+    """Deterministic, unique-per-task canary string (see module docstring
+    above). Pure and offline -- no model call, no randomness -- so the
+    same task always gets the same canary across runs and machines."""
+    return _CANARY_PREFIX + hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:16]
+
+
+def check_canary_contamination(
+    adapter: Any, task: Dict[str, Any], min_fragment_len: int = 12
+) -> Dict[str, Any]:
+    """Opt-in contamination smoke test: prompts the model with ONLY this
+    task's bare canary string (no task description, no test code -- a
+    legitimate model has no way to know what it means) and checks whether
+    the completion contains a substring of at least min_fragment_len
+    characters lifted verbatim from the task's actual description or
+    test_code. A hit means the model associated the canary with content
+    it should have had no way to produce, i.e. it has almost certainly
+    seen this task (or this canary) before, outside of this prompt.
+
+    Costs one real LLM call -- not run as part of a normal benchmark
+    sweep, call explicitly when swapping to a new/unfamiliar model.
+
+    Args:
+        adapter: An execution adapter exposing _call_gemini_and_track
+            (e.g. GeminiExecutionAdapter) or any object with a compatible
+            single-prompt completion method of that name.
+        task: A benchmark task dict (must have "id", "description",
+            "test_code").
+        min_fragment_len: Minimum verbatim-overlap length to count as a
+            hit -- short common substrings (whitespace, punctuation,
+            single words) would false-positive otherwise.
+
+    Returns:
+        {"contaminated": bool, "canary": str, "completion": str}
+    """
+    canary = task_canary_string(task["id"])
+    completion = adapter._call_gemini_and_track(
+        f"Complete the following text:\n{canary}"
+    ) or ""
+
+    source_text = task.get("description", "") + "\n" + task.get("test_code", "")
+    contaminated = False
+    for i in range(0, max(0, len(source_text) - min_fragment_len)):
+        fragment = source_text[i : i + min_fragment_len]
+        if fragment.strip() and fragment in completion:
+            contaminated = True
+            break
+
+    return {"contaminated": contaminated, "canary": canary, "completion": completion}
+
+
 def load_benchmark_tasks(source: Optional[str] = None) -> List[Dict[str, Any]]:
     """Loads benchmark challenges from a JSON config.
 
@@ -210,6 +276,35 @@ def _detect_reward_hacking(test_code: str, written_files_content: Dict[str, str]
     return False
 
 
+# Weak-acceptance-test pre-check (MONA, Google DeepMind ICML 2025,
+# research.google survey, July 2026 topic-page batch): MONA trains an
+# agent to get per-step approval rather than only a final trajectory
+# reward, precisely because an agent that writes its own easy test and
+# then "passes" it can bank reward before the weak test is ever exposed.
+# ASG's disjoint write-scope already keeps the *generating* agent from
+# rewriting the acceptance test, but that says nothing about whether the
+# test itself (task-authored, not agent-authored, in this benchmark
+# harness) was strong enough to prove anything in the first place -- a
+# test with zero real assertions can be "passed" by nearly any code.
+# Checked once per task, before generation runs, not after a pass --
+# MONA's point is to catch this before it can be banked, not audit it
+# after the fact.
+_ASSERT_STATEMENT_RE = re.compile(r"^\s*assert\b", re.MULTILINE)
+_TRIVIAL_ASSERT_RE = re.compile(r"^\s*assert\s+True\s*(,.*)?$", re.MULTILINE)
+
+
+def _detect_weak_acceptance_test(test_code: str) -> bool:
+    """True if the acceptance test has no real assertions (zero asserts,
+    or every assert is a no-op like `assert True`) -- a task whose own
+    spec can't actually distinguish a correct implementation from an
+    empty one."""
+    asserts = _ASSERT_STATEMENT_RE.findall(test_code)
+    if not asserts:
+        return True
+    trivial = _TRIVIAL_ASSERT_RE.findall(test_code)
+    return len(trivial) >= len(asserts)
+
+
 def _read_written_files(written_files: List[str]) -> Dict[str, str]:
     """Best-effort read-back of freshly written files for the
     reward-hacking canary above -- missing/unreadable files are silently
@@ -282,6 +377,7 @@ def run_baseline_mode(
     return {
         "passed": passed,
         "reward_hacking_suspected": reward_hacking_suspected,
+        "weak_acceptance_test": _detect_weak_acceptance_test(task["test_code"]),
         "failure_class": _classify_failure(passed, written_files, test_res),
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),
@@ -465,6 +561,7 @@ def run_asg_mode(
         "persona_strategy": persona_strategy,
         "stalled_attempts": stalled_attempts,
         "reward_hacking_suspected": reward_hacking_suspected,
+        "weak_acceptance_test": _detect_weak_acceptance_test(task["test_code"]),
         "failure_class": _classify_failure(passed, written_files, test_res),
         "latency_sec": round(latency, 2),
         "estimated_cost_usd": round(cost, 6),

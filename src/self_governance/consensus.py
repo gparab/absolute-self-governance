@@ -62,6 +62,56 @@ def _weighted_average(scores: dict, weights: Optional[dict] = None) -> float:
     return sum(scores[a] * weights.get(a, 1.0) for a in scores) / total_weight
 
 
+_SEQUENTIAL_MARKERS = (
+    "then", "after", "once", "depends on", "followed by", "before",
+    "first,", "next,", "finally,", "step 1", "step 2",
+)
+
+
+def estimate_task_decomposability(description: str) -> float:
+    """Heuristic estimate of whether a task reads as parallelizable
+    (independent sub-goals a multi-agent vote can usefully deliberate
+    over) or sequential (one continuous chain of steps where each depends
+    on the last).
+
+    Google Research's agent-scaling study (research.google survey, July
+    2026 topic-page batch: "Towards a science of scaling agent systems")
+    found multi-agent coordination helps parallelizable tasks by up to
+    +80.9% but *hurts* sequential-reasoning tasks by 39-70%, using task
+    decomposability (fit from real data, R^2=0.513) as the deciding
+    signal for which architecture to use ahead of time.
+
+    This is a plain keyword heuristic, not a trained classifier -- ASG
+    doesn't do model training, and a fitted classifier needs labeled
+    outcome data ASG doesn't have yet. It's deliberately NOT wired into
+    ConsensusEngine's control flow here: a caller (e.g. the webhook
+    dispatch path) can use the score to decide whether multi-round TETD
+    deliberation is worth invoking for a given task, but changing that
+    dispatch behavior is a separate decision from providing the signal.
+
+    Args:
+        description: Free-text task/issue description.
+
+    Returns:
+        A float in [0.0, 1.0]: higher means more parallelizable
+        (independent, conjunctive sub-goals -- "and", bullet lists,
+        multiple distinct nouns), lower means more sequential (temporal/
+        dependency connectives like "then", "after", "depends on").
+    """
+    text = description.lower()
+    if not text.strip():
+        return 0.5
+
+    sequential_hits = sum(text.count(marker) for marker in _SEQUENTIAL_MARKERS)
+    conjunctive_hits = text.count(" and ") + text.count("\n-") + text.count("\n*")
+
+    total_signal = sequential_hits + conjunctive_hits
+    if total_signal == 0:
+        return 0.5
+
+    return conjunctive_hits / total_signal
+
+
 @dataclass(frozen=True)
 class ConsensusResult:
     """Result of a succession consensus run.
