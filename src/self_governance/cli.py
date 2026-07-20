@@ -236,6 +236,15 @@ def parse_args():
              "src/self_governance/benchmark_tasks_heldout.json to run "
              "the held-out overfitting-control tier.",
     )
+    parser_bench.add_argument(
+        "--include-recursive-ablation", action="store_true",
+        help="Also run a third arm: one persona recursively refining its "
+             "own attempt across the same 3-attempt budget, instead of 3 "
+             "distinct personas rotating (the default 'asg' arm) -- a "
+             "direct width-vs-depth ablation (see run_asg_mode's "
+             "persona_strategy docstring). Triples LLM spend for the ASG "
+             "arm. Only supported with --reps 1 (the sequential path).",
+    )
 
     return parser.parse_args()
 
@@ -772,17 +781,27 @@ def handle_benchmark(args):
     if args.reps <= 1:
         from self_governance.benchmark import run_benchmark
 
-        results = run_benchmark(out_path=args.out, model=args.model)
-        print(
-            f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}"
+        results = run_benchmark(
+            out_path=args.out,
+            model=args.model,
+            include_recursive_ablation=args.include_recursive_ablation,
         )
-        print("-" * 96)
+        header = f"\n{'Task Name':<30} | {'Baseline (Pass/Time/Cost)':<30} | {'ASG Mode (Pass/Time/Cost)':<30}"
+        if args.include_recursive_ablation:
+            header += f" | {'ASG Recursive (Pass/Time/Cost)':<32}"
+        print(header)
+        print("-" * (96 if not args.include_recursive_ablation else 130))
         for task_id, metric in results.items():
             b = metric["baseline"]
             a = metric["asg"]
             b_str = f"{'PASS' if b['passed'] else 'FAIL'} / {b['latency_sec']}s / ${b['estimated_cost_usd']:.5f}"
             a_str = f"{'PASS' if a['passed'] else 'FAIL'} / {a['latency_sec']}s / ${a['estimated_cost_usd']:.5f}"
-            print(f"{metric['name']:<30} | {b_str:<30} | {a_str:<30}")
+            row = f"{metric['name']:<30} | {b_str:<30} | {a_str:<30}"
+            if args.include_recursive_ablation:
+                r = metric["asg_recursive"]
+                r_str = f"{'PASS' if r['passed'] else 'FAIL'} / {r['latency_sec']}s / ${r['estimated_cost_usd']:.5f}"
+                row += f" | {r_str:<32}"
+            print(row)
     else:
         from self_governance.benchmark import run_benchmark_parallel
 

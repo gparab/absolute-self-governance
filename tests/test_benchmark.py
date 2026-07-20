@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import pytest
 from unittest.mock import patch
 from self_governance.benchmark import (
     run_benchmark,
@@ -149,6 +150,48 @@ def test_asg_rotates_perspectives_and_stops_on_first_pass(monkeypatch, tmp_path)
     assert leads == ["Backend Wizard", "QA Specialist"], (
         "the second attempt must rotate to a different persona"
     )
+
+
+def test_asg_recursive_strategy_uses_same_persona_every_attempt(monkeypatch, tmp_path):
+    """persona_strategy='recursive' (width-vs-depth ablation, arXiv:2510.04871):
+    all 3 attempts must be led by the SAME persona, self-refining its own
+    prior attempt, rather than rotating through 3 distinct specialists."""
+    monkeypatch.chdir(tmp_path)
+    leads = []
+
+    def fake_dev(self, agents, plan):
+        leads.append(plan["lead_perspective"])
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        return {"status": "failed", "raw_test_output": "1 failed: test_x"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None, persona_strategy="recursive")
+
+    assert res["persona_strategy"] == "recursive"
+    assert res["attempts"] == 3
+    assert leads == ["Backend Wizard", "Backend Wizard", "Backend Wizard"]
+
+
+def test_asg_rotate_strategy_is_the_default_and_reports_itself(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    def fake_dev(self, agents, plan):
+        return {"status": "completed", "written_files": []}
+
+    def fake_tests(self, agents, changes, test_target=None):
+        return {"status": "completed", "raw_test_output": "1 passed"}
+
+    _mock_asg_stages(monkeypatch, fake_dev, fake_tests)
+    res = run_asg_mode(_TINY_TASK, api_key=None)
+
+    assert res["persona_strategy"] == "rotate"
+
+
+def test_asg_mode_rejects_invalid_persona_strategy():
+    with pytest.raises(ValueError, match="Invalid persona_strategy"):
+        run_asg_mode(_TINY_TASK, api_key=None, persona_strategy="sideways")
 
 
 def test_asg_detects_stalled_attempt_with_identical_failing_test_set(monkeypatch, tmp_path):
@@ -482,6 +525,42 @@ def test_run_benchmark_mocked(monkeypatch):
     assert "task_secure_reader" in results
     assert results["task_secure_reader"]["baseline"]["passed"] is True
     assert results["task_secure_reader"]["asg"]["passed"] is True
+    assert "asg_recursive" not in results["task_secure_reader"], (
+        "the recursive ablation arm must be opt-in, off by default"
+    )
+
+
+def test_run_benchmark_include_recursive_ablation_adds_third_arm(monkeypatch):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    seen_strategies = []
+
+    def fake_dev(self, agents, plan):
+        return {"status": "completed", "written_files": []}
+
+    monkeypatch.setattr(
+        GeminiExecutionAdapter, "execute_development", fake_dev
+    )
+    monkeypatch.setattr(
+        GeminiExecutionAdapter,
+        "execute_tests",
+        lambda self, agents, changes, test_target=None: {"status": "completed"},
+    )
+
+    import self_governance.benchmark as benchmark_module
+    original_run_asg_mode = benchmark_module.run_asg_mode
+
+    def spy_run_asg_mode(task, api_key, model=None, persona_strategy="rotate"):
+        seen_strategies.append(persona_strategy)
+        return original_run_asg_mode(task, api_key, model=model, persona_strategy=persona_strategy)
+
+    monkeypatch.setattr(benchmark_module, "run_asg_mode", spy_run_asg_mode)
+
+    results = run_benchmark(api_key=None, include_recursive_ablation=True)
+
+    assert "rotate" in seen_strategies and "recursive" in seen_strategies
+    assert "asg_recursive" in results["task_secure_reader"]
+    assert results["task_secure_reader"]["asg_recursive"]["persona_strategy"] == "recursive"
 
 
 def test_cli_benchmark(monkeypatch, capsys):
@@ -505,6 +584,28 @@ def test_cli_benchmark(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Secure File Reader" in captured.out
     assert "Thread Safe Cache" in captured.out
+
+
+def test_cli_benchmark_with_recursive_ablation_prints_third_column(monkeypatch, capsys):
+    from self_governance.gemini_adapter import GeminiExecutionAdapter
+
+    monkeypatch.setattr(
+        GeminiExecutionAdapter,
+        "execute_development",
+        lambda self, agents, plan: {"status": "completed", "written_files": []},
+    )
+    monkeypatch.setattr(
+        GeminiExecutionAdapter,
+        "execute_tests",
+        lambda self, agents, changes, test_target=None: {"status": "completed"},
+    )
+
+    test_args = ["self-governance", "benchmark", "--include-recursive-ablation"]
+    with patch.object(sys, "argv", test_args):
+        main()
+
+    captured = capsys.readouterr()
+    assert "ASG Recursive" in captured.out
 
 
 def test_run_one_isolated_uses_a_distinct_tempdir_per_call(monkeypatch):

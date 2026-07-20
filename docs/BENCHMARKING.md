@@ -38,6 +38,32 @@ The wire protocol itself (Gemini's REST format) is still what
 point for other protocols (see its `LLMProvider` interface) if you want
 to point the benchmark at a different backend entirely.
 
+## Width vs. depth: the recursive-refinement ablation
+
+The default ASG arm rotates through 3 *distinct* specialist personas
+(Backend Wizard, QA Specialist, Security Auditor), one attempt each. This
+is a "width" strategy: more, different perspectives, one try apiece.
+
+"Less is More: Recursive Reasoning with Tiny Networks" (Jolicoeur-Martineau,
+2025, arXiv:2510.04871) found the opposite works better for tiny recursive
+neural networks solving hard puzzle tasks: a single small network
+recursively refining its own answer beat two specialized networks working
+at different timescales, at equal computational depth. Whether the same
+holds for LLM agent personas on *this* benchmark suite is an open,
+testable question, not an assumption — `--include-recursive-ablation`
+adds a third arm at the same 3-attempt budget, but with a single persona
+(`persona_strategy="recursive"` on `run_asg_mode`) refining its own prior
+attempt instead of rotating:
+
+```bash
+self-governance benchmark --include-recursive-ablation
+```
+
+This triples the ASG-side LLM spend for the sweep (rotate + recursive,
+each 3 attempts) — off by default. Only supported on the sequential path
+(`--reps 1`); not yet wired into `run_benchmark_parallel`'s reps/workers
+sweep.
+
 ## Resuming a checkpointed sweep
 
 `--out checkpoint.jsonl` makes a sweep resumable: each completed

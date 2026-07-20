@@ -54,6 +54,7 @@ def run_benchmark(
     api_key: Optional[str] = None,
     out_path: Optional[str] = None,
     model: Optional[str] = None,
+    include_recursive_ablation: bool = False,
 ) -> Dict[str, Any]:
     """Runs the diagnostic code challenges under baseline and ASG modes.
 
@@ -61,6 +62,14 @@ def run_benchmark(
     call in the sweep -- baseline and ASG must run against the same model
     to be a valid comparison. Leave unset to use whatever is configured
     via config.yaml/OrchestratorConfig (see docs/BENCHMARKING.md).
+
+    include_recursive_ablation: if True, also runs a third arm --
+    run_asg_mode with persona_strategy="recursive" -- at the same 3-attempt
+    budget as the default "rotate" arm, so the sweep directly answers
+    "does one persona recursively refining its own attempt beat 3 distinct
+    personas each attempting once, at equal cost?" (see run_asg_mode's
+    persona_strategy docstring). Off by default: it triples this
+    function's LLM spend for a comparison most callers aren't asking for.
     """
     tasks = load_benchmark_tasks()
     results = {}
@@ -110,6 +119,23 @@ def run_benchmark(
             "baseline": baseline_metrics,
             "asg": asg_metrics,
         }
+
+        # 3. Optional ablation: same 3-attempt budget, one persona
+        # recursively refining instead of 3 distinct personas rotating.
+        if include_recursive_ablation:
+            if done_hashes.get((task_id, "asg_recursive")) != task_hash:
+                recursive_metrics = run_asg_mode(
+                    task, api_key, model=model, persona_strategy="recursive"
+                )
+                if checkpoint_f:
+                    checkpoint_f.write(json.dumps({
+                        "task_id": task_id, "mode": "asg_recursive", "rep": 0,
+                        "task_hash": task_hash, "result": recursive_metrics,
+                    }) + "\n")
+                    checkpoint_f.flush()
+            else:
+                recursive_metrics = {"passed": False, "latency_sec": 0.0, "estimated_cost_usd": 0.0, "skipped": True}
+            results[task_id]["asg_recursive"] = recursive_metrics
 
     if checkpoint_f:
         checkpoint_f.close()
@@ -263,14 +289,17 @@ def run_baseline_mode(
 
 
 def run_asg_mode(
-    task: Dict[str, Any], api_key: Optional[str], model: Optional[str] = None
+    task: Dict[str, Any],
+    api_key: Optional[str],
+    model: Optional[str] = None,
+    persona_strategy: str = "rotate",
 ) -> Dict[str, Any]:
-    """ASG mode: perspective-rotating, test-verified attempts.
+    """ASG mode: perspective-rotating (or recursive-refinement), test-
+    verified attempts.
 
-    Up to three attempts per task. Each attempt is led by a different
-    specialist persona, sees the acceptance tests (the tests ARE the
-    spec), and sees the previous attempt's failure output; the sandbox
-    verdict ends the loop on first pass. This merges best-of-N
+    Up to three attempts per task. Each attempt sees the acceptance tests
+    (the tests ARE the spec) and the previous attempt's failure output;
+    the sandbox verdict ends the loop on first pass. This merges best-of-N
     perspective diversity, failure-feedback repair, and early exit into
     one loop -- the mechanisms that make a multi-agent pipeline
     measurably better than one-shot generation.
@@ -285,7 +314,33 @@ def run_asg_mode(
     Baseline stays a single description-only attempt by definition. Every
     attempt's full latency and token cost lands in this unit's metrics --
     no free retries.
+
+    Args:
+        task: Benchmark task dict (description, test_code, target_file).
+        api_key: Gemini API key.
+        model: Optional model override for every stage.
+        persona_strategy: "rotate" (default -- current production
+            behavior) leads each of the 3 attempts with a DIFFERENT
+            specialist persona (Backend Wizard, then QA Specialist, then
+            Security Auditor). "recursive" leads all 3 attempts with the
+            SAME persona instead, self-refining its own prior attempt
+            rather than getting a fresh perspective each time.
+
+            This is a direct ablation of width (more, different
+            personas, one attempt each) vs. depth (one persona,
+            recursively refining) at the same fixed attempt budget --
+            the same question "Less is More: Recursive Reasoning with
+            Tiny Networks" (Jolicoeur-Martineau, 2025, arXiv:2510.04871)
+            answers for tiny recursive networks vs. wide/hierarchical
+            ones: on their benchmarks, one small network recursing deep
+            beat two specialized networks working at different
+            timescales. Whether the same holds for LLM agent personas on
+            this benchmark suite is an open, testable question -- this
+            parameter exists to measure it, not to assert an answer
+            either way.
     """
+    if persona_strategy not in ("rotate", "recursive"):
+        raise ValueError(f"Invalid persona_strategy: {persona_strategy!r}")
     from self_governance.gemini_adapter import GeminiExecutionAdapter
     from self_governance.metrics import ASG_PIPELINE_LATENCY
     from self_governance.agency_agents_adapter import get_persona
@@ -302,7 +357,12 @@ def run_asg_mode(
         model_security=model,
     )
 
-    roster = ["Backend Wizard", "QA Specialist", "Security Auditor"]
+    if persona_strategy == "recursive":
+        # Depth over width: one persona refines its own prior attempt
+        # across all 3 tries, rather than a fresh specialist each time.
+        roster = ["Backend Wizard"] * 3
+    else:
+        roster = ["Backend Wizard", "QA Specialist", "Security Auditor"]
 
     # Create test file on disk
     test_filepath = f"bench_test_{task['target_file']}"
@@ -402,6 +462,7 @@ def run_asg_mode(
     return {
         "passed": passed,
         "attempts": attempts,
+        "persona_strategy": persona_strategy,
         "stalled_attempts": stalled_attempts,
         "reward_hacking_suspected": reward_hacking_suspected,
         "failure_class": _classify_failure(passed, written_files, test_res),
