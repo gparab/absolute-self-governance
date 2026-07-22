@@ -21,7 +21,7 @@ from self_governance.nudger import ContinuousNudger, SimulationException
 from self_governance.config import OrchestratorConfig
 from self_governance.learning import track_learning_feedback
 from self_governance.dimensioning import dimension_swarm
-from self_governance.telemetry import new_correlation_id, get_correlation_id
+from self_governance.telemetry import new_correlation_id, get_correlation_id, set_correlation_id
 from self_governance.metrics import ASG_WEBHOOK_EVENTS
 from self_governance.db import init_db, get_db, Tenant, SuccessionSession, TokenUsage, SessionLocal
 from self_governance.auth import rate_limit_tenant, hash_key
@@ -72,7 +72,15 @@ async def add_correlation_id(request: Request, call_next):
     Returns:
         The response with the correlation ID headers added.
     """
-    _ = request.headers.get("X-Correlation-ID") or new_correlation_id()
+    # A client-supplied ID used to just get discarded here (peer-review
+    # batch, July 2026): `or new_correlation_id()` only runs the ID
+    # *generator* when the header is absent -- it never calls
+    # set_correlation_id() with the client's own value, so a client that
+    # explicitly passed X-Correlation-ID had it silently dropped and every
+    # log line for that request was tagged with whatever the ContextVar
+    # happened to hold instead (usually nothing).
+    client_cid = request.headers.get("X-Correlation-ID")
+    set_correlation_id(client_cid or new_correlation_id())
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = get_correlation_id()
     return response

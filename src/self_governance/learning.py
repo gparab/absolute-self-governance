@@ -53,12 +53,26 @@ def get_learning_state() -> Dict[str, Any]:
 def save_learning_state(state: Dict[str, Any]) -> None:
     """Saves the updated learning logs and model state to a JSON file.
 
+    Writes atomically via a temp file + os.replace (peer-review batch,
+    July 2026): opening LEARNING_STATE_FILE directly in "w" mode instantly
+    truncates it to 0 bytes before the new content is written. A
+    concurrent get_learning_state() call landing in that window sees a
+    0-byte file, its json.load() raises, and it falls back to a fresh
+    default dict -- if that caller then saves, it permanently overwrites
+    all prior history. os.replace is atomic on POSIX and Windows: readers
+    always see either the old complete file or the new complete file,
+    never a partial/truncated one.
+
     Args:
         state: The learning state dictionary to serialize.
     """
+    tmp_path = f"{LEARNING_STATE_FILE}.tmp"
     try:
-        with open(LEARNING_STATE_FILE, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, LEARNING_STATE_FILE)
     except Exception as e:
         logger.error("Failed to save learning state: %s", e)
 
@@ -478,6 +492,16 @@ class HNSWIndex:
             vector: Float vector list to index.
             level: Optional level to assign; if None, random level is computed.
         """
+        # A re-inserted node_id must come off the tombstone set, or it stays
+        # invisible to search() forever (peer-review batch, July 2026):
+        # AgentDB.delete() pops a key's node_id from its own bookkeeping, so
+        # a later insert() for the *same key* deterministically regenerates
+        # the identical node_id (dual_hash is a pure function of the key,
+        # and the collision-avoidance loop no longer sees this id as taken)
+        # -- but this method never removed it from self.deleted, so the
+        # freshly-reinserted vector was silently filtered out of every
+        # subsequent search() result.
+        self.deleted.discard(node_id)
         vector = self.normalize(vector)
 
         if not self.nodes:

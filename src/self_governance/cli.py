@@ -10,7 +10,7 @@ import sys
 import json
 from datetime import datetime, timezone
 
-from self_governance.db import SessionLocal, TokenUsage, Milestone, AgentMemory
+from self_governance.db import SessionLocal, TokenUsage, Milestone, AgentMemory, Tenant
 from self_governance.nudger import ContinuousNudger, write_swarm_config_to_stream
 from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
@@ -543,6 +543,10 @@ def handle_session_restore(args, config):
     Args:
         args: Parsed command-line arguments.
         config: The OrchestratorConfig configuration instance.
+
+    Raises:
+        SystemExit: If more than one Tenant row exists in the database --
+            see the refusal check below.
     """
     file_path = args.file
     if not os.path.exists(file_path):
@@ -554,6 +558,28 @@ def handle_session_restore(args, config):
 
     db = SessionLocal()
     try:
+        # Milestone/AgentMemory/TokenUsage have no tenant_id column at all --
+        # this command's blanket .delete() calls below always operated
+        # across every tenant sharing this database, not just the one
+        # being restored (peer-review batch, July 2026). Properly scoping
+        # every read/write of these tables to a tenant is a real schema
+        # migration (adding the column, backfilling, updating every
+        # SovereignMemory/Milestone call site across the app) that's out
+        # of scope for this fix. Refusing outright when more than one
+        # tenant exists is the honest stopgap: it stops the actual
+        # data-loss blast radius (wiping other tenants) without a
+        # false-confidence partial fix that only touches some of the
+        # affected tables.
+        tenant_count = db.query(Tenant).count()
+        if tenant_count > 1:
+            print(
+                f"Refusing to restore: {tenant_count} tenants share this database, but "
+                "Milestone/AgentMemory/TokenUsage have no tenant_id column, so this "
+                "command's restore would wipe every tenant's data, not just one. "
+                "This command is safe only against a single-tenant database."
+            )
+            sys.exit(1)
+
         # Clear and restore milestones
         try:
             db.query(Milestone).delete()

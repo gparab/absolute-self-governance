@@ -272,7 +272,7 @@ class SovereignMemory:
         """
         self.db = db
 
-    def set(self, key: str, value: str, agent_id: str, db=None) -> AgentMemory:
+    def set(self, key: str, value: str, agent_id: str, db=None, auto_commit: bool = True) -> AgentMemory:
         """Sets or inserts a memory key-value pair for an agent.
 
         Args:
@@ -280,9 +280,21 @@ class SovereignMemory:
             value: Memory text payload.
             agent_id: Identifies the owner agent.
             db: Optional database session to override class session.
+            auto_commit: Commits immediately when True (default -- prior
+                behavior, unchanged for every existing caller). A caller
+                batching several set() calls into one all-or-nothing
+                transaction (see COWMemoryBranch.merge) passes False and
+                commits once itself after every call succeeds, instead of
+                each individual set() committing separately -- the
+                original per-call commit meant a batch that failed halfway
+                through had already durably persisted the keys before the
+                failure point (peer-review batch, July 2026).
 
         Returns:
-            The created or updated AgentMemory record.
+            The created or updated AgentMemory record. When auto_commit is
+            False, the record reflects the pending (uncommitted) write --
+            callers needing generated defaults (e.g. updated_at) populated
+            from the DB should flush the session themselves before reading.
         """
         session = db or self.db
         if not session:
@@ -298,11 +310,14 @@ class SovereignMemory:
             else:
                 mem = AgentMemory(key=key, value=value, agent_id=agent_id)
                 session.add(mem)
-            session.commit()
-            session.refresh(mem)
+            if auto_commit:
+                session.commit()
+                session.refresh(mem)
+            else:
+                session.flush()
             return mem
         finally:
-            if close_session:
+            if close_session and auto_commit:
                 session.close()
 
     def get(self, key: str, agent_id: str, db=None) -> str | None:
@@ -423,6 +438,16 @@ class COWMemoryBranch:
     def merge(self, dest_db = None) -> bool:
         """Merges isolated changes back to parent database storage on success.
 
+        Batches every key into a single transaction (peer-review batch,
+        July 2026): SovereignMemory.set() used to commit on every call, so
+        a batch that failed partway through had already durably persisted
+        the keys before the failure point -- a COW branch's whole promise
+        is all-or-nothing isolation, which a partial commit breaks. Now
+        every set() in the loop passes auto_commit=False and the session
+        commits once at the end; an exception before that point means
+        nothing in this batch was ever committed, and the session is
+        rolled back explicitly for good measure.
+
         Args:
             dest_db: Optional destination database session.
 
@@ -431,20 +456,32 @@ class COWMemoryBranch:
         """
         target_db = dest_db or self.db
         if self.parent_memory:
+            owns_session = target_db is None
+            session = target_db or SessionLocal()
             try:
                 for (agent_id, key), value in self.write_buffer.items():
-                    self.parent_memory.set(key, value, agent_id, db=target_db)
+                    self.parent_memory.set(key, value, agent_id, db=session, auto_commit=False)
+                session.commit()
                 self.write_buffer.clear()
                 return True
             except Exception as e:
                 self.logger.error(f"Failed to merge COW branch back to database: {e}")
-                # Try merging to fallback storage as a fail-safe
+                session.rollback()
+                # Try merging to fallback storage as a fail-safe, then clear
+                # the buffer -- leaving it populated after a handled failure
+                # meant the same (now fallback-stored) entries would be
+                # attempted again on any future merge() call.
                 for (agent_id, key), value in self.write_buffer.items():
                     self.fallback_storage[(agent_id, key)] = value
+                self.write_buffer.clear()
                 return False
+            finally:
+                if owns_session:
+                    session.close()
         else:
             for (agent_id, key), value in self.write_buffer.items():
                 self.fallback_storage[(agent_id, key)] = value
+            self.write_buffer.clear()
             return True
 
 
