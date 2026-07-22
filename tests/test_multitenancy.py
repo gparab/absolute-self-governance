@@ -154,7 +154,11 @@ def test_webhook_adds_db_records(monkeypatch):
     usages = db.query(TokenUsage).filter(TokenUsage.tenant_id == "tenantA").all()
 
     assert len(sessions) == 1
-    assert "role_" in sessions[0].approved_roster
+    # webhook_matrix's 4th row used to fall through to a "role_3" dummy
+    # placeholder persona (peer-review batch, July 2026: LazyList's
+    # role_map only covered 3 of the default 4 matrix rows) -- it now
+    # resolves to a real registered persona instead.
+    assert "DevOps Automator" in sessions[0].approved_roster
     assert len(usages) == 1
     assert usages[0].prompt_tokens == 500
     db.close()

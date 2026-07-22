@@ -134,9 +134,17 @@ def self_critique(proposed_plan: str, goal: str, adapter=None) -> dict:
     except Exception as e:
         logger.warning(f"Self-critique call failed: {e}. Falling back to default approved.", exc_info=True)
 
+    # Fail-closed, not fail-open (peer-review batch, July 2026): a quality
+    # gate that approves by default on any LLM timeout, malformed JSON, or
+    # adversarial garbage response is a gate an attacker (or just a bad
+    # network day) can bypass by making the call fail. approved=False here
+    # means a genuine parsing/API failure blocks the plan instead of
+    # silently waving it through -- a caller relying on this gate should
+    # treat a low-confidence rejection as "needs human review", not retry
+    # into an infinite loop.
     return {
-        "score": 8,
-        "approved": True,
-        "critique": "Fallback: Plan approved due to validation parsing error."
+        "score": 1,
+        "approved": False,
+        "critique": "Fallback: could not obtain a critique (LLM call or response parsing failed) -- failing closed, not approving by default."
     }
 

@@ -19,14 +19,14 @@ from self_governance.dimensioning import dimension_swarm
 from self_governance.config import OrchestratorConfig
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from self_governance.anti_drift import LoopDetector, self_critique
+from self_governance.anti_drift import LoopDetector, LoopInterceptionError, self_critique
 from self_governance.graph_memory import GraphMemoryEngine
 from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
 from self_governance.policy import AgentBudget, ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
 from self_governance.policy_rules import default_rule_set
 from self_governance.alerts import AlertEngine, default_alert_rules
-from self_governance.gemini_adapter import build_sandbox_pytest_argv
+from self_governance.gemini_adapter import build_sandbox_pytest_argv, GeminiExecutionAdapter
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -679,6 +679,34 @@ class ContinuousNudger:
                                     "audit_failed": audit_res.returncode != 0,
                                 })
                                 self._check_alerts()
+
+                                # LoopDetector was never consulted on this path
+                                # (peer-review batch, July 2026) -- it's only
+                                # called on a *successful* completion elsewhere
+                                # in this file, so a repeatedly-failing verify
+                                # phase never got checked at all. Hashing the
+                                # raw handoff content wouldn't have worked
+                                # anyway: each failure prepends a fresh
+                                # "# Failure Summary" block (with this
+                                # attempt's own pytest/audit output) on top of
+                                # every prior one, so the content -- and its
+                                # hash -- grows and changes every cycle even
+                                # when the underlying failure is identical.
+                                # Signature on the exit codes instead: a
+                                # stable signal that repeats for a genuinely
+                                # repeating failure, immune to that noise.
+                                try:
+                                    self.loop_detector.record_and_check(
+                                        f"verify_failure:{pytest_res.returncode}:{audit_res.returncode}"
+                                    )
+                                except LoopInterceptionError as loop_err:
+                                    logger.error("Repeated identical verify failure detected: %s", loop_err)
+                                    _emit_event(self.working_directory, "loop_detected", {
+                                        "message": str(loop_err),
+                                        "context": "verify_phase_failure",
+                                    })
+                                    self.last_content = content
+                                    return  # Halt -- needs human intervention, not another automatic retry
                                 if self.config.fail_on_verify:
                                     parsed["status"] = "FAILED"
                                     summary = "Verification failures summary:\n"
@@ -936,6 +964,23 @@ class ContinuousNudger:
     ) -> ConsensusResult:
         """The actual succession logic, called only through trigger_succession
         so it always runs under self.lock."""
+        if adapter is None:
+            # The file-watcher path (process_handoff -> _execute_succession_safely
+            # -> trigger_succession) never passed an adapter (peer-review batch,
+            # July 2026), which silently no-ops self_critique(),
+            # run_sandbox_simulation(), and distill_friction() below --
+            # they all check `adapter is None`/`not adapter` and skip real
+            # work. Only the webhook path (github_app.py) ever passed a
+            # real one. Auto-instantiating a bare GeminiExecutionAdapter()
+            # here is safe in a keyless dev/test environment -- its own
+            # api_key falls back to os.getenv("GEMINI_API_KEY"), and every
+            # one of those downstream functions already degrades to a
+            # mock/no-op path when api_key is unset, same as passing None
+            # did. In a real deployment with GEMINI_API_KEY configured,
+            # this restores the actual critique/sandbox/distillation
+            # checks that were previously always skipped on this path
+            # regardless of whether a key was available.
+            adapter = GeminiExecutionAdapter()
         try:
             import re
             yaml_content = handoff_content

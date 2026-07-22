@@ -94,7 +94,14 @@ class MCPClient:
                 "object": dict
             }
             if expected_type in type_mapping:
-                if not isinstance(v, type_mapping[expected_type]):
+                # bool is a subclass of int in Python, so isinstance(True, int)
+                # is True -- without this explicit exclusion, passing a bool
+                # for an expected "integer"/"number" field silently bypassed
+                # the type gate (peer-review batch, July 2026).
+                type_ok = isinstance(v, type_mapping[expected_type]) and not (
+                    isinstance(v, bool) and expected_type in ("integer", "number")
+                )
+                if not type_ok:
                     return {
                         "status": "error",
                         "error": f"Type mismatch for '{k}': expected {expected_type}, got {type(v).__name__}."

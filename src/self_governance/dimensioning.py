@@ -78,7 +78,21 @@ class LazyList(Sequence[Agent]):
             raise IndexError("list index out of range")
 
         role_idx = bisect.bisect_right(self._prefix_sums, idx)
-        role_map = {0: "Backend Wizard", 1: "QA Specialist", 2: "Security Auditor"}
+        # config.py's default webhook_matrix has 4 rows, but role_map only
+        # covered 3 (peer-review batch, July 2026): the 4th row silently
+        # fell through to role_map.get's f"role_{role_idx}" fallback, which
+        # get_persona() (called with no adapter here, so it can't
+        # LLM-synthesize a real one either) resolves to its generic
+        # placeholder persona -- staffing every webhook-triggered swarm's
+        # 4th slot with a dummy bot instead of a real specialist, since
+        # this is the actual default production configuration path, not
+        # an edge case.
+        role_map = {
+            0: "Backend Wizard",
+            1: "QA Specialist",
+            2: "Security Auditor",
+            3: "DevOps Automator",
+        }
         mapped_role = role_map.get(role_idx, f"role_{role_idx}")
 
         from self_governance.agency_agents_adapter import (

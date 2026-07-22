@@ -29,6 +29,13 @@ logger = logging.getLogger("self_governance.consensus")
 
 _GROUPTHINK_JACCARD_THRESHOLD = 0.6
 
+# How far past [1.0, 10.0] a score can land and still be treated as
+# legitimate near-boundary jitter overflow rather than an implausible/
+# garbage value (see _score_agent's clamp). The mock-scoring branch's
+# jitter never exceeds ~0.1 past base_score+0.5, so 0.5 comfortably covers
+# real overflow while still rejecting something like a 999 or -50.
+_CLAMP_MARGIN = 0.5
+
 
 def _detect_groupthink(justifications: dict, approved_agents: List[str]) -> bool:
     """Groupthink-suspicion heuristic (Janis 1972 taxonomy, July 2026
@@ -172,6 +179,15 @@ class ConsensusResult:
         groupthink_suspected: True if the winning round looked like suspiciously
             uniform agreement (see _detect_groupthink) rather than independent
             judgment converging -- an informational flag, not a rejection.
+        cycles_needed: Number of TETD iterations the run actually consumed.
+            Previously undeclared on this dataclass (peer-review batch,
+            July 2026): callers reading it via getattr(res, 'cycles_needed',
+            <default>) always silently got the default, since a frozen
+            dataclass has no such attribute unless explicitly set -- one
+            fast-path branch in nudger.py worked around this with
+            object.__setattr__, but the real consensus run() path below
+            never did, so telemetry/learning always saw a static fallback
+            instead of the actual iteration count.
     """
     approved_roster: List[str]
     final_temperature: float
@@ -179,6 +195,7 @@ class ConsensusResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     groupthink_suspected: bool = False
+    cycles_needed: int = 1
 
     def __iter__(self):
         return iter((self.approved_roster, self.final_temperature, self.final_threshold))
@@ -545,8 +562,24 @@ class ConsensusEngine:
                 score = base_score - 0.5 + self.rng.uniform(0.01, 0.09) + min(0.1, escape_term)
             justification = f"Suitability assessment for candidate {agent} based on capability alignment at iteration {self.iteration}."
 
-        if not (1.0 <= score <= 10.0):
+        # Clamp near-boundary overflow instead of slamming it to 1.0
+        # (peer-review batch, July 2026): the mock-scoring branch's
+        # base_score(<=9.5) + 0.5 + jitter(+-0.1) can land just over 10.0
+        # for a top-tier candidate (e.g. 10.05, max ever ~10.1) -- the old
+        # reject-outright check treated that exactly like a catastrophic
+        # failure. _CLAMP_MARGIN bounds this to genuine near-boundary
+        # overflow only: a wildly implausible score (an LLM returning 999,
+        # a parsing artifact) is NOT jitter overflow and must not be
+        # rewarded with a perfect clamped score -- that falls through to
+        # _PARSE_FAILURE_SCORE instead, same fail-closed treatment as an
+        # unparseable response gets elsewhere in this method.
+        if 10.0 < score <= 10.0 + _CLAMP_MARGIN:
+            score = 10.0
+        elif 1.0 - _CLAMP_MARGIN <= score < 1.0:
             score = 1.0
+        elif not (1.0 <= score <= 10.0):
+            score = self._PARSE_FAILURE_SCORE
+            justification = f"implausible score outside valid range, treated as dissent (fail-closed): {justification}"
 
         return score, justification
 
@@ -566,6 +599,7 @@ class ConsensusEngine:
                     final_threshold=float(self.target_tau),
                     prompt_tokens=self.adapter.prompt_tokens if self.adapter is not None else 0,
                     completion_tokens=self.adapter.completion_tokens if self.adapter is not None else 0,
+                    cycles_needed=0,
                 )
 
             deadline = _time.monotonic() + self.max_seconds
@@ -582,6 +616,7 @@ class ConsensusEngine:
                         final_threshold=self.tau,
                         prompt_tokens=self.adapter.prompt_tokens if self.adapter is not None else 0,
                         completion_tokens=self.adapter.completion_tokens if self.adapter is not None else 0,
+                        cycles_needed=self.iteration,
                     )
 
                 logger.info("Starting consensus iteration %d. Current temperature: %.2f, threshold: %.2f", self.iteration, self.temp, self.tau)
@@ -693,6 +728,7 @@ class ConsensusEngine:
                         prompt_tokens=self.adapter.prompt_tokens if self.adapter is not None else 0,
                         completion_tokens=self.adapter.completion_tokens if self.adapter is not None else 0,
                         groupthink_suspected=_detect_groupthink(self.justifications, approved),
+                        cycles_needed=self.iteration,
                     )
 
                 if self.iteration > 1000:
@@ -706,6 +742,7 @@ class ConsensusEngine:
                         final_threshold=self.tau,
                         prompt_tokens=self.adapter.prompt_tokens if self.adapter is not None else 0,
                         completion_tokens=self.adapter.completion_tokens if self.adapter is not None else 0,
+                        cycles_needed=self.iteration,
                     )
 
                 if self.iteration >= self.B:

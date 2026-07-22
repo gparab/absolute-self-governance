@@ -69,10 +69,12 @@ def test_anti_drift_boost(monkeypatch):
     res = self_critique("roster content", "goal content", adapter=mock_adapter)
     assert res["approved"] is False
 
-    # Scenario C: Exception raises in _call_gemini_and_track
+    # Scenario C: Exception raises in _call_gemini_and_track -- fails
+    # closed (peer-review batch, July 2026: a quality gate that approves
+    # by default on any LLM/network failure is trivially bypassable).
     mock_adapter._call_gemini_and_track.side_effect = Exception("API connection failure")
     res = self_critique("roster content", "goal content", adapter=mock_adapter)
-    assert res["approved"] is True  # fallback approval
+    assert res["approved"] is False  # fail-closed, not fallback approval
     assert "Fallback" in res["critique"]
 
 
