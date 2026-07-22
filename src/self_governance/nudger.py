@@ -23,7 +23,7 @@ from self_governance.anti_drift import LoopDetector, self_critique
 from self_governance.graph_memory import GraphMemoryEngine
 from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
-from self_governance.policy import ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
+from self_governance.policy import AgentBudget, ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
 from self_governance.policy_rules import default_rule_set
 from self_governance.alerts import AlertEngine, default_alert_rules
 
@@ -336,16 +336,29 @@ class ContinuousNudger:
     """
 
     def __init__(
-        self, working_directory: str, config: Optional[OrchestratorConfig] = None
+        self,
+        working_directory: str,
+        config: Optional[OrchestratorConfig] = None,
+        action_budget: Optional[int] = 10_000,
     ) -> None:
         """Initialize ContinuousNudger.
 
         Args:
             working_directory: The directory where handoff.md, logs, and prompt drafts are located.
             config: Optional OrchestratorConfig instance.
+            action_budget: Per-process ceiling on policy-gated actions
+                (Agent Contracts, research.google survey, July 2026
+                topic-page batch), enforced by BudgetConservationRule
+                alongside the existing git-mutation-specific rate limit.
+                Deliberately generous by default -- this is a backstop
+                against a runaway process, not a normal-operation
+                constraint -- so existing callers see no behavior change
+                unless they pass a tighter budget. None disables budget
+                tracking entirely (BudgetConservationRule abstains).
         """
         self.working_directory = working_directory
         self.config = config if config is not None else OrchestratorConfig()
+        self.action_budget = AgentBudget(max_actions=action_budget) if action_budget is not None else None
         # RLock, not Lock: process_handoff() holds this lock for its whole
         # body and calls trigger_succession() from within it (via
         # _execute_succession_safely); trigger_succession() itself also
@@ -397,7 +410,9 @@ class ContinuousNudger:
         also emitted as an event so it shows up in the audit trail even
         when the caller doesn't otherwise log it.
         """
-        action = PolicyAction(name=name, argv=argv, path=path, source=source, risk_level=risk_level)
+        action = PolicyAction(
+            name=name, argv=argv, path=path, source=source, risk_level=risk_level, budget=self.action_budget
+        )
         decision = self.policy_engine.check(action)
         self._policy_checked_count += 1
         if not decision.allowed:

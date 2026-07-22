@@ -95,6 +95,7 @@ def call_gemini_with_metadata(
     developer_message: Optional[str] = None,
     system_instruction: Optional[str] = None,
     is_reasoning: bool = False,
+    cost_tiered: bool = False,
 ) -> Dict[str, Any]:
     """Makes a direct HTTP call to the Gemini API with retry logic and returns usage metadata.
 
@@ -109,6 +110,14 @@ def call_gemini_with_metadata(
         developer_message: Optional instruction for reasoning models.
         system_instruction: Optional instruction for non-reasoning models.
         is_reasoning: Whether the target model is a reasoning/thinking model.
+        cost_tiered: If True, routes through providers.tiered_call instead
+            of calling generate_content directly -- tries a cheap draft
+            model first and only escalates to `model` (or DEFAULT_MODEL)
+            when a self-consistency uncertainty proxy exceeds threshold
+            (uncertainty-based two-tier selection, research.google survey,
+            July 2026 topic-page batch). Off by default: no caller in this
+            codebase currently sets this, so existing call sites see zero
+            behavior change unless a caller opts in explicitly.
 
     Returns:
         A dictionary containing:
@@ -128,9 +137,7 @@ def call_gemini_with_metadata(
 
     from self_governance.providers import get_provider
     provider = get_provider(api_key, model)
-    return provider.generate_content(
-        prompt=prompt,
-        api_key=api_key,
+    call_kwargs = dict(
         model=model,
         system_instruction=system_instruction,
         developer_message=developer_message,
@@ -140,6 +147,12 @@ def call_gemini_with_metadata(
         temperature=temperature,
         is_reasoning=is_reasoning,
     )
+    if cost_tiered:
+        from self_governance.providers import tiered_call
+        return tiered_call(provider, prompt, api_key=api_key, strong_model=model, **{
+            k: v for k, v in call_kwargs.items() if k != "model"
+        })
+    return provider.generate_content(prompt=prompt, api_key=api_key, **call_kwargs)
 
 
 def call_gemini(

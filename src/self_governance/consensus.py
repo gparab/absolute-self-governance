@@ -215,6 +215,7 @@ class ConsensusEngine:
         calibration_weights: Optional[dict] = None,
         enable_debate: bool = False,
         debate_margin: float = 1.0,
+        aspect_weights: Optional[dict] = None,
     ):
         """Initializes the ConsensusEngine.
 
@@ -254,6 +255,17 @@ class ConsensusEngine:
                 2026 topic-page batch). Off by default.
             debate_margin: How close a round's average score must be to tau
                 to count as "contested" and trigger the debate round above.
+            aspect_weights: Optional per-aspect weight dict (e.g.
+                {"correctness": 3.0, "style": 1.0}) enabling aspect-
+                decomposed verification (BoN-MAV, research.google survey,
+                July 2026 topic-page batch): when set, each voter is asked
+                to emit a JSON "aspects" breakdown alongside its holistic
+                score, and aggregate_aspect_scores() combines it into the
+                round score used everywhere else instead of the flat
+                "score" field -- no extra LLM calls, same single vote per
+                agent, just a structured breakdown of that one response.
+                None (default) preserves prior behavior exactly: no aspect
+                prompt, flat "score" field used as before.
 
         Raises:
             TypeError: If initial_roster is not a list of strings, or B, initial_temp,
@@ -300,6 +312,7 @@ class ConsensusEngine:
         self.calibration_weights = calibration_weights or {}
         self.enable_debate = enable_debate
         self.debate_margin = debate_margin
+        self.aspect_weights = aspect_weights
 
         # Annealing jitter, not cryptography: reproducibility via seed matters,
         # unpredictability does not.
@@ -393,7 +406,13 @@ class ConsensusEngine:
         justification = self._PARSE_FAILURE_JUSTIFICATION
         try:
             data = json.loads(res)
-            score = float(data.get("score", self._PARSE_FAILURE_SCORE))
+            aspects = data.get("aspects")
+            if self.aspect_weights is not None and isinstance(aspects, dict) and aspects:
+                score = aggregate_aspect_scores(
+                    {k: float(v) for k, v in aspects.items()}, self.aspect_weights
+                )
+            else:
+                score = float(data.get("score", self._PARSE_FAILURE_SCORE))
             justification = data.get("reason", "No justification provided.")
         except Exception:
             logger.warning("Failed to parse LLM response as JSON. Falling back to regex/text heuristics. Raw response: %r", res, exc_info=True)
@@ -465,13 +484,20 @@ class ConsensusEngine:
         )
 
         if self.api_key and self.adapter is not None:
+            aspect_instruction = ""
+            if self.aspect_weights:
+                aspect_list = ", ".join(sorted(self.aspect_weights))
+                aspect_instruction = (
+                    f" Also return an \"aspects\" object scoring each of these dimensions "
+                    f"independently from 0.0 to 1.0: {aspect_list}."
+                )
             prompt = (
                 f"{peer_feedback}"
                 f"You are evaluating the agent role '{agent}' for software engineering tasks.\n"
                 f"{persona_info}"
                 f"The full list of candidate agent roles under consideration is: {self.initial_roster}.\n"
                 "Considering the feedback from your peers (if any), rate the suitability of this agent compared to the others.\n"
-                "Return a JSON object containing a float score and justification reason."
+                f"Return a JSON object containing a float score and justification reason.{aspect_instruction}"
             )
             schema = {
                 "type": "OBJECT",
@@ -483,6 +509,10 @@ class ConsensusEngine:
                     "reason": {
                         "type": "STRING",
                         "description": "Brief justification of why this role is suitable or not.",
+                    },
+                    "aspects": {
+                        "type": "OBJECT",
+                        "description": "Optional per-aspect scores (0.0-1.0), only if requested above.",
                     },
                 },
                 "required": ["score", "reason"],

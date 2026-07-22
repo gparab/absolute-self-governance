@@ -267,3 +267,94 @@ def test_retrieval_failure_log_no_change_below_min_samples():
     log = RetrievalFailureLog()
     log.record_outcome(False)
     assert log.suggest_threshold(0.3) == 0.3
+
+
+# --- Wiring: budget conservation in the real Nudger action path -------------
+
+def test_nudger_policed_run_denies_once_action_budget_exhausted(tmp_path):
+    from self_governance.nudger import ContinuousNudger
+
+    nudger = ContinuousNudger(str(tmp_path), action_budget=1)
+    nudger._policed_run("git status", ["git", "status"], cwd=str(tmp_path))  # spends the 1 budgeted action
+    with pytest.raises(Exception):
+        nudger._policed_run("git status", ["git", "status"], cwd=str(tmp_path))
+
+
+def test_nudger_default_action_budget_does_not_block_normal_use(tmp_path):
+    from self_governance.nudger import ContinuousNudger
+
+    nudger = ContinuousNudger(str(tmp_path))
+    for _ in range(5):
+        nudger._policed_run("git status", ["git", "status"], cwd=str(tmp_path))
+
+
+def test_nudger_action_budget_none_disables_tracking(tmp_path):
+    from self_governance.nudger import ContinuousNudger
+
+    nudger = ContinuousNudger(str(tmp_path), action_budget=None)
+    assert nudger.action_budget is None
+
+
+# --- Wiring: aspect-decomposed scoring in ConsensusEngine --------------------
+
+def test_consensus_parse_llm_score_uses_aspects_when_weights_configured():
+    from self_governance.consensus import ConsensusEngine
+
+    engine = ConsensusEngine(initial_roster=["Backend Wizard"], aspect_weights={"correctness": 3.0, "style": 1.0})
+    score, reason = engine._parse_llm_score(
+        '{"score": 5.0, "reason": "ok", "aspects": {"correctness": 1.0, "style": 0.0}}'
+    )
+    assert score == pytest.approx(0.75)  # aggregated aspects, not the flat "score" field
+    assert reason == "ok"
+
+
+def test_consensus_parse_llm_score_uses_flat_score_when_aspect_weights_unset():
+    from self_governance.consensus import ConsensusEngine
+
+    engine = ConsensusEngine(initial_roster=["Backend Wizard"])
+    score, _ = engine._parse_llm_score('{"score": 5.0, "reason": "ok", "aspects": {"correctness": 1.0}}')
+    assert score == 5.0  # aspect_weights unset -- prior behavior preserved exactly
+
+
+# --- Wiring: cost-tiered routing in gemini_adapter.call_gemini_with_metadata -
+
+def test_call_gemini_with_metadata_cost_tiered_routes_through_tiered_call(monkeypatch):
+    from self_governance import gemini_adapter
+
+    calls = {}
+
+    def fake_get_provider(api_key, model):
+        return "fake-provider"
+
+    def fake_tiered_call(provider, prompt, **kwargs):
+        calls["used"] = True
+        calls["provider"] = provider
+        return {"text": "tiered result", "tier": "draft"}
+
+    monkeypatch.setattr("self_governance.providers.get_provider", fake_get_provider)
+    monkeypatch.setattr("self_governance.providers.tiered_call", fake_tiered_call)
+
+    result = gemini_adapter.call_gemini_with_metadata("hi", api_key="k", cost_tiered=True)
+    assert calls.get("used") is True
+    assert result["text"] == "tiered result"
+
+
+def test_call_gemini_with_metadata_default_does_not_use_tiered_call(monkeypatch):
+    from self_governance import gemini_adapter
+
+    called = {"tiered": False}
+
+    class FakeProvider:
+        def generate_content(self, **kwargs):
+            return {"text": "direct result"}
+
+    def fake_tiered_call(*args, **kwargs):
+        called["tiered"] = True
+        return {"text": "should not be used"}
+
+    monkeypatch.setattr("self_governance.providers.get_provider", lambda api_key, model: FakeProvider())
+    monkeypatch.setattr("self_governance.providers.tiered_call", fake_tiered_call)
+
+    result = gemini_adapter.call_gemini_with_metadata("hi", api_key="k")
+    assert called["tiered"] is False
+    assert result["text"] == "direct result"
