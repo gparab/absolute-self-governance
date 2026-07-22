@@ -45,6 +45,33 @@ class Decision(Enum):
 
 
 @dataclass
+class AgentBudget:
+    """Resource-bounded delegation budget (Agent Contracts, research.google
+    survey, July 2026 topic-page batch): a parent's remaining budget is
+    deducted, not copied, when it delegates to a sub-agent, so a child can
+    never spend more than the slice it was actually handed -- a
+    conservation law enforced by BudgetConservationRule, not by convention.
+    """
+
+    max_actions: int
+    spent: int = 0
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.max_actions - self.spent)
+
+    def child_budget(self, allotment: int) -> "AgentBudget":
+        """Carves out a sub-budget for a delegated sub-agent. Raises if the
+        requested allotment exceeds what's left -- a parent cannot hand out
+        more than it has."""
+        if allotment > self.remaining:
+            raise ValueError(
+                f"cannot delegate {allotment} actions: only {self.remaining} remain"
+            )
+        return AgentBudget(max_actions=allotment)
+
+
+@dataclass
 class PolicyAction:
     """A single dangerous action awaiting a policy decision."""
 
@@ -54,6 +81,7 @@ class PolicyAction:
     content: Optional[str] = None
     source: ActionSource = ActionSource.NUDGER
     risk_level: RiskLevel = RiskLevel.CAUTION
+    budget: Optional[AgentBudget] = None
 
 
 @dataclass

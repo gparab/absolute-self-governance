@@ -68,7 +68,37 @@ _SEQUENTIAL_MARKERS = (
 )
 
 
-def estimate_task_decomposability(description: str) -> float:
+def aggregate_aspect_scores(aspect_scores: dict, weights: Optional[dict] = None) -> float:
+    """Aspect-decomposed verification (BoN-MAV, research.google survey, July
+    2026 topic-page batch): instead of one holistic peer vote per candidate,
+    BoN-MAV scores separate aspects (e.g. "correctness", "safety", "style")
+    with dedicated verifiers and combines them, outperforming single-
+    verifier/self-consistency scoring at the same test-time compute budget.
+
+    This is a thin wrapper around the existing _weighted_average -- reuses
+    TETD's calibration-weighting machinery, just applied across aspects of
+    one candidate instead of across agents voting on one candidate. Not
+    wired into ConsensusEngine.run()'s control flow; a caller assembles
+    per-aspect scores (e.g. from separate LLM calls, one per aspect) and
+    passes them here to get one aggregate score to feed into the existing
+    vote.
+
+    Args:
+        aspect_scores: mapping of aspect name -> score in [0.0, 1.0].
+        weights: optional per-aspect weight (e.g. "correctness" weighted
+            higher than "style"); aspects missing from weights default to 1.0.
+
+    Returns:
+        The weighted-mean aspect score in [0.0, 1.0].
+    """
+    if not aspect_scores:
+        raise ValueError("aspect_scores must be non-empty")
+    return _weighted_average(aspect_scores, weights)
+
+
+def estimate_task_decomposability(
+    description: str, single_agent_success_estimate: Optional[float] = None
+) -> float:
     """Heuristic estimate of whether a task reads as parallelizable
     (independent sub-goals a multi-agent vote can usefully deliberate
     over) or sequential (one continuous chain of steps where each depends
@@ -89,8 +119,22 @@ def estimate_task_decomposability(description: str) -> float:
     deliberation is worth invoking for a given task, but changing that
     dispatch behavior is a separate decision from providing the signal.
 
+    The same survey's headline model ("Towards a science of scaling agent
+    systems") adds a second axis this function didn't originally have:
+    multi-agent gains diminish once single-agent performance on a task
+    type already clears a threshold, independent of how decomposable the
+    task reads. single_agent_success_estimate lets a caller who has a
+    cached/estimated solo-baseline success rate for this task type (e.g.
+    from GraphMemoryEngine's EMA-scored history) fold that in: a high solo
+    estimate dampens the returned score toward neutral (0.5), since
+    swarming a task the solo agent already handles well isn't worth it
+    regardless of its structure.
+
     Args:
         description: Free-text task/issue description.
+        single_agent_success_estimate: Optional solo-baseline success rate
+            in [0.0, 1.0] for this task type, if known. None (default)
+            skips the dampening and returns the structure-only score.
 
     Returns:
         A float in [0.0, 1.0]: higher means more parallelizable
@@ -100,16 +144,19 @@ def estimate_task_decomposability(description: str) -> float:
     """
     text = description.lower()
     if not text.strip():
-        return 0.5
+        base_score = 0.5
+    else:
+        sequential_hits = sum(text.count(marker) for marker in _SEQUENTIAL_MARKERS)
+        conjunctive_hits = text.count(" and ") + text.count("\n-") + text.count("\n*")
 
-    sequential_hits = sum(text.count(marker) for marker in _SEQUENTIAL_MARKERS)
-    conjunctive_hits = text.count(" and ") + text.count("\n-") + text.count("\n*")
+        total_signal = sequential_hits + conjunctive_hits
+        base_score = 0.5 if total_signal == 0 else conjunctive_hits / total_signal
 
-    total_signal = sequential_hits + conjunctive_hits
-    if total_signal == 0:
-        return 0.5
+    if single_agent_success_estimate is None:
+        return base_score
 
-    return conjunctive_hits / total_signal
+    solo = max(0.0, min(1.0, single_agent_success_estimate))
+    return base_score * (1.0 - solo) + 0.5 * solo
 
 
 @dataclass(frozen=True)

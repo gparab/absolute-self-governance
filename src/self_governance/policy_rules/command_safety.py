@@ -1,5 +1,9 @@
 """Forbidden subprocess argv patterns for the Ship Phase's git/pytest calls."""
 
+import base64
+import binascii
+import re
+
 from self_governance.policy import ActionSource, Decision, PolicyAction, PolicyDecision
 
 # Argv substrings that must never appear together in a policed action's argv,
@@ -54,6 +58,105 @@ class ProtectedBranchDeletionRule:
                 rule_name=self.name,
                 reason=f"attempted deletion of a protected branch: {action.argv}",
             )
+        return None
+
+
+_B64_RE = re.compile(r"[A-Za-z0-9+/]{16,}={0,2}")
+
+
+def _normalize_argv(argv: "list[str]") -> "set[str]":
+    """Widens the forbidden-combo match beyond literal argv tokens (AgentTrust,
+    research.google survey, July 2026 topic-page batch): decodes any
+    base64-looking token and folds common `echo -e`/printf escape shorthands,
+    so `git push $(echo cC1m|base64 -d)` still lands on the same forbidden
+    tokens as a literal `-f`. Best-effort -- unrecognized tokens pass through
+    unchanged, this is a widening of the match set, never a narrowing."""
+    normalized: "set[str]" = set()
+    for token in argv:
+        normalized.add(token)
+        candidate = token
+        padded = candidate + "=" * (-len(candidate) % 4)
+        if _B64_RE.fullmatch(candidate):
+            try:
+                decoded = base64.b64decode(padded, validate=True).decode("utf-8", errors="strict")
+                normalized.update(decoded.split())
+            except (binascii.Error, ValueError, UnicodeDecodeError):
+                pass
+    return normalized
+
+
+class ObfuscatedCommandRule:
+    """Re-runs the forbidden-combo check against a normalized (obfuscation-
+    decoded) view of argv, catching base64-wrapped destructive flags that
+    ForbiddenCommandRule's literal match misses."""
+
+    name = "obfuscated_command"
+    priority = 9
+
+    def evaluate(self, action: PolicyAction) -> "PolicyDecision | None":
+        if not action.argv:
+            return None
+        normalized = _normalize_argv(action.argv)
+        if normalized == set(action.argv):
+            return None  # nothing decoded -- ForbiddenCommandRule already covers this
+        for combo in _FORBIDDEN_ARGV_COMBOS:
+            if combo.issubset(normalized):
+                return PolicyDecision(
+                    decision=Decision.DENY,
+                    rule_name=self.name,
+                    reason=f"argv decodes to forbidden pattern {sorted(combo)}: {action.argv}",
+                )
+        return None
+
+
+# Command sequences that are individually benign but form a known attack
+# chain in aggregate (AgentTrust's "RiskChain" pattern): download-and-execute.
+_RISKY_SEQUENCES = [
+    ("curl", "chmod", "execute"),
+    ("wget", "chmod", "execute"),
+]
+
+
+def _classify(argv: "list[str]") -> "str | None":
+    argv_set = set(argv)
+    if {"curl"} & argv_set:
+        return "curl"
+    if {"wget"} & argv_set:
+        return "wget"
+    if {"chmod"} & argv_set and ({"+x", "755", "777"} & argv_set):
+        return "chmod"
+    if argv and argv[0] not in ("git", "curl", "wget", "chmod"):
+        return "execute"
+    return None
+
+
+class CommandSequenceRule:
+    """Stateful (like GitMutationRateLimitRule): tracks a short rolling
+    window of recent command classes per instance and flags a run that
+    completes a known risky sequence (e.g. download -> make executable ->
+    run), even though each individual step passes every other rule."""
+
+    name = "command_sequence"
+    priority = 12
+    _WINDOW = 5
+
+    def __init__(self) -> None:
+        self._recent: "list[str]" = []
+
+    def evaluate(self, action: PolicyAction) -> "PolicyDecision | None":
+        step = _classify(action.argv)
+        if step is None:
+            return None
+        self._recent.append(step)
+        self._recent = self._recent[-self._WINDOW :]
+        for seq in _RISKY_SEQUENCES:
+            n = len(seq)
+            if tuple(self._recent[-n:]) == seq:
+                return PolicyDecision(
+                    decision=Decision.DENY,
+                    rule_name=self.name,
+                    reason=f"command sequence matches known attack chain {seq}",
+                )
         return None
 
 

@@ -32,9 +32,9 @@ this same `sanitize()` before it reaches a prompt.
 import base64
 import binascii
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import Dict, List
 
 
 class TrustLevel(Enum):
@@ -140,3 +140,53 @@ def sanitize(text: str, source: TrustLevel) -> SanitizationResult:
         f"[END UNTRUSTED EXTERNAL INPUT]"
     )
     return SanitizationResult(original=text, flagged_categories=flagged, quarantined_text=quarantined_text)
+
+
+@dataclass
+class ProvenanceLedger:
+    """Causal action-provenance ledger (ARGUS, research.google survey, July
+    2026 topic-page batch): ARGUS traces every proposed action back to the
+    runtime evidence that justified it and only allows actions with a
+    benign, traceable evidence chain (cut attack success 28.8% to 3.8% on
+    AgentLure in the paper's own eval).
+
+    Scoped down to a single tenant/round's worth of text spans -- each
+    span sanitize()d via this module gets registered here with a stable
+    span_id, so a downstream action can cite which span(s) it was based on
+    and get checked against the same TrustLevel/flagged_categories that
+    sanitize() already computed, rather than re-deriving trust from scratch.
+    """
+
+    _spans: Dict[str, SanitizationResult] = field(default_factory=dict)
+    _next_id: int = 0
+
+    def register(self, result: SanitizationResult) -> str:
+        """Registers a sanitize() result and returns its span_id."""
+        span_id = f"span-{self._next_id}"
+        self._next_id += 1
+        self._spans[span_id] = result
+        return span_id
+
+    def verify(self, cited_span_ids: List[str]) -> "ProvenanceVerdict":
+        """Checks a proposed action's cited evidence spans. An action with
+        no citations at all is untraceable -- treated as failing, the same
+        as citing a flagged span, since ARGUS's whole premise is that every
+        action must have a traceable evidence chain."""
+        if not cited_span_ids:
+            return ProvenanceVerdict(allowed=False, reason="action cites no evidence span")
+        for span_id in cited_span_ids:
+            span = self._spans.get(span_id)
+            if span is None:
+                return ProvenanceVerdict(allowed=False, reason=f"unknown span_id: {span_id}")
+            if span.is_suspicious:
+                return ProvenanceVerdict(
+                    allowed=False,
+                    reason=f"span {span_id} flagged: {', '.join(span.flagged_categories)}",
+                )
+        return ProvenanceVerdict(allowed=True, reason="all cited spans clean")
+
+
+@dataclass
+class ProvenanceVerdict:
+    allowed: bool
+    reason: str

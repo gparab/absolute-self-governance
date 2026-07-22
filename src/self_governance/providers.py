@@ -12,7 +12,7 @@ import urllib.error
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from self_governance.config import DEFAULT_MODEL, DEFAULT_OPENROUTER_MODEL
+from self_governance.config import DEFAULT_MODEL, DEFAULT_OPENROUTER_MODEL, DRAFT_MODEL
 
 logger = logging.getLogger("self_governance.providers")
 
@@ -220,6 +220,74 @@ def _execute_request(url: str, headers: Dict[str, str], data: Dict[str, Any], pa
         "finish_reason": "ERROR",
         "error": True,
     }
+
+def _self_consistency_uncertainty(provider: LLMProvider, prompt: str, api_key: Optional[str], draft_model: str) -> float:
+    """Cheap uncertainty proxy (uncertainty-based two-tier selection,
+    research.google survey, July 2026 topic-page batch): the paper's own
+    method uses the draft model's token-level logprob entropy, which
+    Gemini/OpenRouter don't reliably expose through ASG's existing
+    providers -- so this substitutes a self-consistency proxy, sampling
+    the draft model twice and measuring how much the two responses agree
+    (via the same Jaccard token-overlap already used for groupthink
+    detection in consensus.py). Low agreement stands in for high
+    uncertainty."""
+    from self_governance.graph_memory import tokenize as _tokenize, jaccard as _jaccard
+
+    first = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7)
+    second = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7)
+    t1, t2 = _tokenize(first.get("text", "")), _tokenize(second.get("text", ""))
+    if not t1 and not t2:
+        return 1.0  # both empty/errored -- treat as maximally uncertain, escalate
+    agreement = _jaccard(t1, t2)
+    return 1.0 - agreement
+
+
+def tiered_call(
+    provider: LLMProvider,
+    prompt: str,
+    api_key: Optional[str] = None,
+    strong_model: Optional[str] = None,
+    draft_model: Optional[str] = None,
+    uncertainty_threshold: float = 0.5,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Cost-tiered model escalation: tries a cheap draft model first, and
+    only escalates to the full-price strong_model when the draft's output
+    looks uncertain (see _self_consistency_uncertainty). Beat cascading and
+    routing baselines on 25/27 setups in the source paper, using no
+    separate router model -- just the draft model's own uncertainty.
+
+    Not wired into any persona-dispatch path; a caller opts a specific LLM
+    call into cost-tiering by calling this instead of provider.generate_content
+    directly.
+
+    Args:
+        provider: an LLMProvider instance (GeminiProvider/OpenRouterProvider).
+        prompt: the prompt to send.
+        api_key: API key for both draft and strong calls.
+        strong_model: escalation target; defaults to DEFAULT_MODEL.
+        draft_model: cheap first-pass model; defaults to config.DRAFT_MODEL.
+        uncertainty_threshold: escalate when the self-consistency
+            uncertainty proxy exceeds this, in [0.0, 1.0].
+        **kwargs: forwarded to generate_content for both calls.
+
+    Returns:
+        The dict from whichever call was used, plus a "tier" key
+        ("draft" or "escalated") so callers can see which model answered.
+    """
+    draft_model = draft_model or DRAFT_MODEL
+    strong_model = strong_model or DEFAULT_MODEL
+
+    uncertainty = _self_consistency_uncertainty(provider, prompt, api_key, draft_model)
+    if uncertainty <= uncertainty_threshold:
+        result = provider.generate_content(prompt, api_key, model=draft_model, **kwargs)
+        result["tier"] = "draft"
+        return result
+
+    result = provider.generate_content(prompt, api_key, model=strong_model, **kwargs)
+    result["tier"] = "escalated"
+    return result
+
 
 def get_provider(api_key: Optional[str] = None, model: Optional[str] = None) -> LLMProvider:
     """Dispatches on the API key's own prefix, so no separate --provider

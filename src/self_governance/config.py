@@ -28,6 +28,13 @@ DEFAULT_MODEL = os.getenv("ASG_DEFAULT_MODEL", "gemini-2.5-flash")
 # invisible unless a caller thinks to check here).
 DEFAULT_OPENROUTER_MODEL = os.getenv("ASG_DEFAULT_OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
 
+# Cheap "draft" model for providers.tiered_call's cost-tiered escalation
+# (uncertainty-based two-tier selection, research.google survey, July 2026
+# topic-page batch) -- tried first; only escalates to DEFAULT_MODEL when the
+# draft response looks uncertain. Override via ASG_DRAFT_MODEL if the
+# configured provider's cheapest model differs from this default.
+DRAFT_MODEL = os.getenv("ASG_DRAFT_MODEL", "gemini-2.5-flash-lite")
+
 DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
     "consensus": {
         "buffer_limit": 3,

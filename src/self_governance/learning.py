@@ -1384,6 +1384,58 @@ class MemoryBridge:
         self.prune_file(file_path, max_lines=max_lines)
 
 
+class RetrievalFailureLog:
+    """Self-tuning retrieval diagnosis (EvolveMem, research.google survey,
+    July 2026 topic-page batch): EvolveMem reads per-query failure logs,
+    root-causes retrieval misses, and proposes config changes to the
+    retrieval mechanism itself (not just the stored content), with
+    automatic revert-on-regression.
+
+    Scoped down to what SmartRetrievalPipeline/HNSWIndex can actually
+    adjust today: a single scalar retrieval threshold. Not wired into
+    SmartRetrievalPipeline.retrieve() -- a caller records outcomes here
+    after each retrieval + downstream result, then periodically calls
+    suggest_threshold() to get an adjusted value, applies it behind its
+    own shadow/canary check, and calls record_outcome for the new
+    threshold's own results so a regression naturally pulls the average
+    back down on the next suggest_threshold() call (the "revert" is a
+    property of always weighting toward what recently worked, not a
+    separate rollback mechanism).
+    """
+
+    def __init__(self, window: int = 50) -> None:
+        self.window = window
+        self._outcomes: List[bool] = []  # True = retrieval led to a useful result
+
+    def record_outcome(self, useful: bool) -> None:
+        self._outcomes.append(useful)
+        self._outcomes = self._outcomes[-self.window :]
+
+    @property
+    def failure_rate(self) -> float:
+        if not self._outcomes:
+            return 0.0
+        return 1.0 - (sum(1 for o in self._outcomes if o) / len(self._outcomes))
+
+    def suggest_threshold(
+        self, current_threshold: float, step: float = 0.05, min_samples: int = 10
+    ) -> float:
+        """Proposes a new similarity/match threshold based on recent
+        failure rate. High failure rate (too many useless results getting
+        through) raises the threshold to be more selective; very low
+        failure rate with enough samples nudges it back down to avoid
+        over-filtering. Returns current_threshold unchanged until
+        min_samples have been recorded -- no tuning on thin evidence.
+        """
+        if len(self._outcomes) < min_samples:
+            return current_threshold
+        if self.failure_rate > 0.4:
+            return min(1.0, current_threshold + step)
+        if self.failure_rate < 0.1:
+            return max(0.0, current_threshold - step)
+        return current_threshold
+
+
 def format_retro_report(state: Optional[Dict[str, Any]] = None) -> str:
     """Formats a retrospective report from the learning state as a markdown string.
 

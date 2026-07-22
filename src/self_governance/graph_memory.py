@@ -676,3 +676,92 @@ class GraphMemoryEngine:
             return insights
         finally:
             db.close()
+
+
+# NOTE on retrieval design (empirical RAG-for-code-gen study, research.google
+# survey, July 2026 topic-page batch): that study found embedding-similarity
+# "similar code" retrieval often *hurts* code-gen accuracy (up to -15%),
+# while in-context API signatures/decomposed-step retrieval help. If ASG
+# ever adds repo-level RAG on top of the procedural-memory recall above,
+# retrieve by API/symbol signature match, not by raw code embedding
+# similarity -- this module's own procedure recall already follows that
+# spirit (lexical Jaccard over described triggers, not code-embedding
+# nearest-neighbor).
+
+
+def materialize_skill_card(procedure: Dict) -> str:
+    """Renders a recommend_procedure() candidate dict as a standalone
+    markdown "skill card" (Memento-Skills, research.google survey, July
+    2026 topic-page batch): Memento-Skills stores skills as externalized
+    markdown files an agent can load directly into context, with a
+    separate router selecting which card to hand an agent, rather than
+    ASG's current DB-query-only recall path.
+
+    Not wired into recommend_procedure's return value or any dispatch
+    path -- a caller that wants file-based skill cards (e.g. to write into
+    a skills/ directory an agent's context loader reads) converts a
+    recommendation to one with this function.
+
+    Args:
+        procedure: a candidate dict as returned by recommend_procedure()
+            (must have at least "name" and "steps").
+
+    Returns:
+        A markdown string: title, precondition/trigger note, numbered
+        steps, and an evidence footer (success rate, sample size).
+    """
+    name = procedure.get("name") or "unnamed-strategy"
+    steps = procedure.get("steps") or []
+    success = procedure.get("success_count", 0)
+    failure = procedure.get("failure_count", 0)
+    total = success + failure
+    rate = procedure.get("success_rate", (success / total) if total else 0.0)
+
+    lines = [f"# {name}", ""]
+    if procedure.get("match_similarity") is not None:
+        lines.append(f"_Matched trigger similarity: {procedure['match_similarity']:.2f}_")
+        lines.append("")
+    lines.append("## Steps")
+    for i, step in enumerate(steps, start=1):
+        lines.append(f"{i}. {step}")
+    lines.append("")
+    lines.append("## Evidence")
+    lines.append(f"- Success rate: {rate:.0%} ({success}/{total} recorded attempts)")
+    if procedure.get("context_sufficient") is False:
+        lines.append("- ⚠ marginal match: recorded confidence below the sufficient-context margin")
+    return "\n".join(lines)
+
+
+def validate_procedure_against_heldout(
+    procedure: Dict, heldout_outcomes: List[bool], min_success_rate: float = 0.6
+) -> bool:
+    """Held-out validation gate before procedure promotion (EvoSkill,
+    research.google survey, July 2026 topic-page batch): EvoSkill validates
+    candidate skills against a held-out task set before promotion, a
+    stronger bar than trusting accumulated EMA score alone, which can
+    overfit a procedure to one lucky run.
+
+    Not wired into any promotion/confidence-tier transition in this module
+    -- a caller that wants this gate (e.g. before promoting a procedure out
+    of ASSUMPTION/INFERENCE confidence) replays the candidate against a
+    small held-out set of past task outcomes and passes the pass/fail
+    results here.
+
+    Args:
+        procedure: a candidate dict as returned by recommend_procedure()
+            (used only for its name, in the raised-nothing case this stays
+            silent -- kept for future logging/telemetry use).
+        heldout_outcomes: a list of bool, one per held-out replay (True =
+            procedure succeeded on that held-out task).
+        min_success_rate: the bar the held-out replay must clear, in
+            [0.0, 1.0].
+
+    Returns:
+        True if heldout_outcomes is non-empty and its success rate meets
+        min_success_rate. False (not an exception) for an empty
+        heldout_outcomes -- "no held-out evidence yet" is a legitimate,
+        expected state, not an error.
+    """
+    if not heldout_outcomes:
+        return False
+    return (sum(1 for o in heldout_outcomes if o) / len(heldout_outcomes)) >= min_success_rate

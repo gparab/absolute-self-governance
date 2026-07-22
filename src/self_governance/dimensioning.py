@@ -7,6 +7,7 @@ matrices and Shannon entropy scaling, returning a memory-efficient LazyList.
 
 import bisect
 import math
+from dataclasses import dataclass
 from typing import List, Optional, Union, Iterator, overload
 from collections.abc import Sequence
 from self_governance.models import Agent, SwarmConfig
@@ -109,6 +110,72 @@ class LazyList(Sequence[Agent]):
         """
         for i in range(self._total_count):
             yield self[i]
+
+
+class AgentLifecycleStatus:
+    IDLE = "idle"
+    BUSY = "busy"
+    FAILED = "failed"
+
+
+@dataclass
+class SwarmAgentState:
+    """A spawned persona modeled as a resource object with a lifecycle
+    (DRAMA, research.google survey, July 2026 topic-page batch): DRAMA
+    separates a control plane (allocation/reassignment) from a worker plane
+    (task execution) and models both agents and tasks as resource objects
+    so the system tolerates an agent failing or a task's needs shifting
+    mid-run without respawning the whole swarm.
+
+    Deliberately not wired into dimension_swarm()'s return type -- that
+    function's SwarmConfig/LazyList contract is unchanged; a caller that
+    wants churn resilience tracks SwarmAgentState alongside the swarm it
+    already dimensioned and calls reassign_failed_agent() when needed.
+    """
+
+    role: str
+    status: str = AgentLifecycleStatus.IDLE
+    affinity_tags: "tuple[str, ...]" = ()
+
+
+def reassign_failed_agent(
+    agents: List[SwarmAgentState], failed_index: int, required_tags: "tuple[str, ...]" = ()
+) -> Optional[int]:
+    """Finds the next-highest-affinity idle agent to take over for a failed
+    one, instead of respawning the whole swarm.
+
+    Affinity is scored as the count of required_tags the candidate's
+    affinity_tags already cover -- a plain overlap count, not a learned
+    model; ties break by lowest index (stable, deterministic).
+
+    Args:
+        agents: the current swarm's agent states.
+        failed_index: index of the agent whose status is being set to FAILED.
+        required_tags: tags the replacement should ideally cover.
+
+    Returns:
+        The index of the idle agent reassigned to take over, or None if no
+        idle agent was available. Mutates agents in place: marks
+        failed_index as FAILED and, if a replacement is found, marks it BUSY.
+    """
+    if failed_index < 0 or failed_index >= len(agents):
+        raise IndexError("failed_index out of range")
+
+    agents[failed_index].status = AgentLifecycleStatus.FAILED
+
+    best_index: Optional[int] = None
+    best_score = -1
+    for i, agent in enumerate(agents):
+        if i == failed_index or agent.status != AgentLifecycleStatus.IDLE:
+            continue
+        score = len(set(agent.affinity_tags) & set(required_tags))
+        if score > best_score:
+            best_score = score
+            best_index = i
+
+    if best_index is not None:
+        agents[best_index].status = AgentLifecycleStatus.BUSY
+    return best_index
 
 
 def dimension_swarm(
