@@ -137,7 +137,24 @@ def call_gemini_with_metadata(
 
     from self_governance.providers import get_provider
     provider = get_provider(api_key, model)
-    call_kwargs = dict(
+    if cost_tiered:
+        from self_governance.providers import tiered_call
+        return tiered_call(
+            provider,
+            prompt,
+            api_key=api_key,
+            strong_model=model,
+            system_instruction=system_instruction,
+            developer_message=developer_message,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            is_reasoning=is_reasoning,
+        )
+    return provider.generate_content(
+        prompt=prompt,
+        api_key=api_key,
         model=model,
         system_instruction=system_instruction,
         developer_message=developer_message,
@@ -147,12 +164,6 @@ def call_gemini_with_metadata(
         temperature=temperature,
         is_reasoning=is_reasoning,
     )
-    if cost_tiered:
-        from self_governance.providers import tiered_call
-        return tiered_call(provider, prompt, api_key=api_key, strong_model=model, **{
-            k: v for k, v in call_kwargs.items() if k != "model"
-        })
-    return provider.generate_content(prompt=prompt, api_key=api_key, **call_kwargs)
 
 
 def call_gemini(
