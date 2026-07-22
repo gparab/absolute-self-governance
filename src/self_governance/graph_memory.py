@@ -11,7 +11,7 @@ import random
 import re
 import uuid
 import networkx as nx
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
@@ -147,15 +147,37 @@ class GraphMemoryEngine:
         # Get a db session using the generator
         return next(get_db())
 
-    def add_session_node(self, session_id: int, roster: List[str], features: List[str], constraints: List[str]) -> str:
+    def add_session_node(
+        self,
+        session_id: int,
+        roster: List[str],
+        features: List[str],
+        constraints: List[str],
+        dedup_threshold: Optional[float] = None,
+    ) -> str:
         """Records a succession session and links it to the roster and injected constraints.
-        
+
         Args:
             session_id: The succession session ID.
             roster: List of agent roles approved.
             features: List of feature names the session is building.
             constraints: List of injected constraints (God's Eye).
-            
+            dedup_threshold: Optional write-time constraint dedup (research.google
+                survey, July 2026 topic-page batch, Tier 2): when a new
+                constraint's Jaccard similarity against an existing constraint
+                meets or exceeds this threshold, no new Constraint node is
+                created -- the session links to the existing node instead
+                (still gets its own CONSTRAINED_BY edge, so this session's
+                relationship to that constraint is recorded either way).
+                Distinct from _RELATION_JACCARD_THRESHOLD's RELATES_TO
+                linking, which always creates a new node and only links it
+                to related-but-distinct priors; this instead treats a
+                near-identical constraint as the *same* constraint, so
+                query_context and recommend_procedure don't have to reconcile
+                N near-duplicate nodes as separate evidence. None (default)
+                disables dedup entirely -- exact prior behavior, every
+                constraint gets its own node.
+
         Returns:
             The session node ID.
         """
@@ -206,6 +228,24 @@ class GraphMemoryEngine:
             ]
 
             for constraint in constraints:
+                new_tokens = _tokenize(constraint)
+
+                dedup_target_id: Optional[str] = None
+                if dedup_threshold is not None and new_tokens:
+                    for prior_id, tokens in prior_tokens:
+                        if not tokens:
+                            continue
+                        if jaccard(tokens, new_tokens) >= dedup_threshold:
+                            dedup_target_id = prior_id
+                            break
+
+                if dedup_target_id is not None:
+                    db.add(GraphEdge(
+                        tenant_id=self.tenant_id, source_id=session_node_id,
+                        target_id=dedup_target_id, type="CONSTRAINED_BY",
+                    ))
+                    continue
+
                 constraint_id = f"constraint_{uuid.uuid4().hex[:8]}"
                 constraint_node = GraphNode(id=constraint_id, tenant_id=self.tenant_id, type="Constraint", properties=json.dumps({"text": constraint}))
                 db.merge(constraint_node)
@@ -213,7 +253,6 @@ class GraphMemoryEngine:
                 edge = GraphEdge(tenant_id=self.tenant_id, source_id=session_node_id, target_id=constraint_id, type="CONSTRAINED_BY")
                 db.add(edge)
 
-                new_tokens = _tokenize(constraint)
                 for prior_id, tokens in prior_tokens:
                     if not tokens or not new_tokens:
                         continue

@@ -14,6 +14,8 @@ from self_governance.policy import (
     AgentBudget,
     Decision,
     PolicyAction,
+    PolicySynthesisError,
+    synthesize_task_policy,
 )
 from self_governance.policy_rules.budget import BudgetConservationRule
 from self_governance.policy_rules.command_safety import (
@@ -23,7 +25,7 @@ from self_governance.policy_rules.command_safety import (
 from self_governance.policy_rules import default_rule_set
 from self_governance.injection_defense import ProvenanceLedger, TrustLevel, sanitize
 from self_governance.consensus import aggregate_aspect_scores, estimate_task_decomposability
-from self_governance.dimensioning import SwarmAgentState, reassign_failed_agent
+from self_governance.dimensioning import SwarmAgentState, reassign_failed_agent, select_volunteer
 from self_governance.providers import tiered_call
 from self_governance.graph_memory import materialize_skill_card, validate_procedure_against_heldout
 from self_governance.learning import RetrievalFailureLog
@@ -358,3 +360,77 @@ def test_call_gemini_with_metadata_default_does_not_use_tiered_call(monkeypatch)
     result = gemini_adapter.call_gemini_with_metadata("hi", api_key="k")
     assert called["tiered"] is False
     assert result["text"] == "direct result"
+
+
+# --- Tier 2: blackboard volunteer task assignment ----------------------------
+
+def test_select_volunteer_picks_highest_bid():
+    assert select_volunteer({"a": 0.4, "b": 0.9, "c": 0.7}) == "b"
+
+
+def test_select_volunteer_respects_min_bid_floor():
+    assert select_volunteer({"a": 0.1, "b": 0.2}, min_bid=0.5) is None
+
+
+def test_select_volunteer_breaks_ties_deterministically():
+    assert select_volunteer({"zebra": 0.5, "apple": 0.5}) == "apple"
+
+
+def test_select_volunteer_empty_bids_returns_none():
+    assert select_volunteer({}) is None
+
+
+# --- Tier 2: VeriGuard-style verified per-task policy synthesis -------------
+
+def test_synthesize_task_policy_grants_requested_non_forbidden_actions():
+    policy = synthesize_task_policy(["read_file", "run_tests"], forbidden_action_names=frozenset({"git_push"}))
+    assert policy.permits("read_file")
+    assert not policy.permits("git_push")
+
+
+def test_synthesize_task_policy_rejects_synthesis_that_would_grant_forbidden_action():
+    with pytest.raises(PolicySynthesisError):
+        synthesize_task_policy(["read_file", "git_push"], forbidden_action_names=frozenset({"git_push"}))
+
+
+# --- Tier 2: write-time constraint dedup in GraphMemoryEngine ---------------
+
+@pytest.fixture
+def _dedup_db():
+    from self_governance.db import Base, engine as db_engine
+    Base.metadata.create_all(bind=db_engine)
+    yield
+
+
+def test_add_session_node_dedups_near_identical_constraints(_dedup_db):
+    from self_governance.graph_memory import GraphMemoryEngine
+    from self_governance.db import SessionLocal, GraphNode
+
+    tenant = "test_tenant_dedup_batch2"
+    graph_engine = GraphMemoryEngine(tenant_id=tenant)
+    graph_engine.add_session_node(1, ["Backend Wizard"], ["auth"], ["never log raw passwords to disk"])
+    graph_engine.add_session_node(
+        2, ["Backend Wizard"], ["auth"], ["never log raw passwords to disk"], dedup_threshold=0.9
+    )
+    db = SessionLocal()
+    try:
+        constraint_count = db.query(GraphNode).filter_by(tenant_id=tenant, type="Constraint").count()
+    finally:
+        db.close()
+    assert constraint_count == 1
+
+
+def test_add_session_node_without_dedup_threshold_keeps_prior_behavior(_dedup_db):
+    from self_governance.graph_memory import GraphMemoryEngine
+    from self_governance.db import SessionLocal, GraphNode
+
+    tenant = "test_tenant_nodedup_batch2"
+    graph_engine = GraphMemoryEngine(tenant_id=tenant)
+    graph_engine.add_session_node(1, ["Backend Wizard"], ["auth"], ["never log raw passwords to disk"])
+    graph_engine.add_session_node(2, ["Backend Wizard"], ["auth"], ["never log raw passwords to disk"])
+    db = SessionLocal()
+    try:
+        constraint_count = db.query(GraphNode).filter_by(tenant_id=tenant, type="Constraint").count()
+    finally:
+        db.close()
+    assert constraint_count == 2

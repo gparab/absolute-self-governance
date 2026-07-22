@@ -8,7 +8,7 @@ matrices and Shannon entropy scaling, returning a memory-efficient LazyList.
 import bisect
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Union, Iterator, overload
+from typing import Dict, List, Optional, Union, Iterator, overload
 from collections.abc import Sequence
 from self_governance.models import Agent, SwarmConfig
 
@@ -176,6 +176,41 @@ def reassign_failed_agent(
     if best_index is not None:
         agents[best_index].status = AgentLifecycleStatus.BUSY
     return best_index
+
+
+def select_volunteer(bids: Dict[str, float], min_bid: float = 0.0) -> Optional[str]:
+    """Blackboard-style volunteer task assignment (research.google survey,
+    July 2026 topic-page batch, Tier 2): rather than a central allocator
+    assigning a task by tag-overlap (see reassign_failed_agent), each
+    candidate agent independently posts a bid -- its own confidence
+    estimate for handling this specific task -- to a shared blackboard, and
+    the highest bid above min_bid wins. Complements affinity-based
+    reassignment: that's for replacing a failed agent from known tags,
+    this is for initial assignment when agents can self-assess suitability
+    better than a static tag-overlap score would.
+
+    Not wired into dimension_swarm() or any dispatch path -- a caller
+    collects bids (e.g. from each candidate persona's own confidence
+    self-report) and calls this to pick a winner.
+
+    Args:
+        bids: mapping of agent identifier -> bid (confidence estimate,
+            any comparable scale -- the caller defines what a bid means).
+        min_bid: the bar a bid must clear to be eligible at all. A bid
+            exactly equal to min_bid is eligible (inclusive floor).
+
+    Returns:
+        The identifier of the highest bidder among eligible bids, or None
+        if no bid clears min_bid. Ties break by lexicographically smallest
+        identifier -- deterministic, not first-inserted (dict iteration
+        order isn't a meaningful tiebreak signal here).
+    """
+    eligible = {agent: bid for agent, bid in bids.items() if bid >= min_bid}
+    if not eligible:
+        return None
+    best_bid = max(eligible.values())
+    winners = [agent for agent, bid in eligible.items() if bid == best_bid]
+    return min(winners)
 
 
 def dimension_swarm(

@@ -129,6 +129,70 @@ class PolicyEngine:
         return _DEFAULT_ALLOW
 
 
+@dataclass(frozen=True)
+class TaskPolicy:
+    """A verified, task-scoped permission set (VeriGuard, research.google
+    survey, July 2026 topic-page batch, Tier 2): VeriGuard synthesizes a
+    minimal per-task policy from a task's declared needs and formally
+    verifies it before granting, rather than trusting a single global
+    rule set to be right for every task shape.
+
+    Scoped down to what ASG can actually verify without a theorem prover:
+    synthesize_task_policy() checks the synthesized allow-list against a
+    set of forbidden action names and refuses to produce a TaskPolicy that
+    would permit any of them -- a syntactic verification, not a semantic
+    one, but a real check rather than an unverified allow-list.
+    """
+
+    allowed_action_names: "frozenset[str]"
+
+    def permits(self, action_name: str) -> bool:
+        return action_name in self.allowed_action_names
+
+
+class PolicySynthesisError(Exception):
+    """Raised when synthesize_task_policy's requested allow-list would
+    grant a forbidden action -- the synthesis itself is unsafe, not just a
+    single action being denied at check-time."""
+
+
+def synthesize_task_policy(
+    requested_actions: List[str], forbidden_action_names: "frozenset[str]"
+) -> TaskPolicy:
+    """Synthesizes a verified, minimal TaskPolicy for one task.
+
+    Not wired into PolicyEngine.check() or PolicyAction -- a caller that
+    wants task-scoped permission verification builds a TaskPolicy for a
+    given task (e.g. from that task's declared tool/action needs) and
+    checks candidate actions against it before -- or in addition to --
+    the existing rule-based PolicyEngine.
+
+    Args:
+        requested_actions: the action names this task claims it needs.
+        forbidden_action_names: a global forbidden set (e.g. mutating git
+            subcommands for a read-only analysis task) the synthesis must
+            never grant, regardless of what was requested.
+
+    Returns:
+        A TaskPolicy whose allowed_action_names is exactly
+        set(requested_actions) minus nothing -- since verification
+        already guarantees no forbidden name made it into the request.
+
+    Raises:
+        PolicySynthesisError: if any requested_actions entry is also in
+            forbidden_action_names -- the synthesis itself is rejected
+            rather than silently dropping the offending action, so a
+            caller can't mistake a partially-granted policy for a fully
+            verified one.
+    """
+    overlap = set(requested_actions) & forbidden_action_names
+    if overlap:
+        raise PolicySynthesisError(
+            f"cannot synthesize a task policy that grants forbidden actions: {sorted(overlap)}"
+        )
+    return TaskPolicy(allowed_action_names=frozenset(requested_actions))
+
+
 class PolicyDenied(Exception):
     """Raised when a policy-gated action is denied. Callers that need the
     action to be fatal (e.g. the Ship Phase) should let this propagate;
