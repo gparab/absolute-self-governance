@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from self_governance.nudger import ContinuousNudger
+from self_governance.nudger import ContinuousNudger, SimulationException
 from self_governance.config import OrchestratorConfig
 from self_governance.learning import track_learning_feedback
 from self_governance.dimensioning import dimension_swarm
@@ -345,6 +345,31 @@ def _handle_issues_event(payload: dict, tenant_id_str: str) -> Optional[dict]:
                     adapter=adapter,
                     tenant_id=tenant_id_str,
                 )
+            except SimulationException as e:
+                # The Council Sandbox deliberately rejected this handoff --
+                # a real business outcome, not a server error. LLM spend
+                # already happened; bill it, then return a 200 saying so
+                # (peer-review batch, July 2026): re-raising here used to
+                # surface as a 500, which GitHub's webhook delivery retries
+                # automatically -- each retry re-runs the sandbox, bills
+                # again, gets rejected again, and retries again, an
+                # unbounded billing loop for what is just "no" as an
+                # answer.
+                cost = calculate_cost(adapter.prompt_tokens, adapter.completion_tokens)
+                if adapter.prompt_tokens or adapter.completion_tokens:
+                    record_usage(
+                        tenant_id=tenant_id_str,
+                        prompt_tokens=adapter.prompt_tokens,
+                        completion_tokens=adapter.completion_tokens,
+                        cost_usd=cost,
+                        db=db,
+                    )
+                logger.info("Council Sandbox rejected handoff for issue event: %s", e)
+                return {
+                    "status": "rejected",
+                    "msg": "Swarm deliberately rejected this handoff",
+                    "reason": str(e),
+                }
             except Exception:
                 # LLM spend already happened; record it before propagating
                 # so a failed succession is never free *and* unbilled.

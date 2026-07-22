@@ -63,11 +63,20 @@ class AgentBudget:
     def child_budget(self, allotment: int) -> "AgentBudget":
         """Carves out a sub-budget for a delegated sub-agent. Raises if the
         requested allotment exceeds what's left -- a parent cannot hand out
-        more than it has."""
+        more than it has.
+
+        Deducts the allotment from this budget's own `spent` (peer-review
+        batch, July 2026: the original version checked the allotment
+        against `remaining` but never actually deducted it, so a parent
+        could hand out its full budget to an unbounded number of children
+        -- the conservation law this class's own docstring claims to
+        enforce didn't actually hold).
+        """
         if allotment > self.remaining:
             raise ValueError(
                 f"cannot delegate {allotment} actions: only {self.remaining} remain"
             )
+        self.spent += allotment
         return AgentBudget(max_actions=allotment)
 
 

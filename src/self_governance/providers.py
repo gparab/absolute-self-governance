@@ -221,7 +221,9 @@ def _execute_request(url: str, headers: Dict[str, str], data: Dict[str, Any], pa
         "error": True,
     }
 
-def _self_consistency_uncertainty(provider: LLMProvider, prompt: str, api_key: Optional[str], draft_model: str) -> float:
+def _self_consistency_uncertainty(
+    provider: LLMProvider, prompt: str, api_key: Optional[str], draft_model: str, **kwargs: Any
+) -> float:
     """Cheap uncertainty proxy (uncertainty-based two-tier selection,
     research.google survey, July 2026 topic-page batch): the paper's own
     method uses the draft model's token-level logprob entropy, which
@@ -230,11 +232,25 @@ def _self_consistency_uncertainty(provider: LLMProvider, prompt: str, api_key: O
     the draft model twice and measuring how much the two responses agree
     (via the same Jaccard token-overlap already used for groupthink
     detection in consensus.py). Low agreement stands in for high
-    uncertainty."""
+    uncertainty.
+
+    **kwargs (system_instruction, response_schema, etc.) must be forwarded
+    to both probe calls (peer-review batch, July 2026): the original
+    version dropped them, so a caller requiring structured JSON output got
+    two unformatted, wildly divergent probe responses -- guaranteed
+    maximum Jaccard distance regardless of the model's actual
+    uncertainty, forcing tiered_call to escalate on every single call and
+    silently defeating the whole cost-tiering mechanism. `temperature` is
+    intentionally excluded and fixed at 0.7 for both probes regardless of
+    what the caller passed -- a deterministic (temperature=0) probe would
+    make the two samples trivially identical, making the self-consistency
+    signal meaningless.
+    """
     from self_governance.graph_memory import tokenize as _tokenize, jaccard as _jaccard
 
-    first = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7)
-    second = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7)
+    probe_kwargs = {k: v for k, v in kwargs.items() if k != "temperature"}
+    first = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7, **probe_kwargs)
+    second = provider.generate_content(prompt, api_key, model=draft_model, temperature=0.7, **probe_kwargs)
     t1, t2 = _tokenize(first.get("text", "")), _tokenize(second.get("text", ""))
     if not t1 and not t2:
         return 1.0  # both empty/errored -- treat as maximally uncertain, escalate
@@ -278,7 +294,7 @@ def tiered_call(
     draft_model = draft_model or DRAFT_MODEL
     strong_model = strong_model or DEFAULT_MODEL
 
-    uncertainty = _self_consistency_uncertainty(provider, prompt, api_key, draft_model)
+    uncertainty = _self_consistency_uncertainty(provider, prompt, api_key, draft_model, **kwargs)
     if uncertainty <= uncertainty_threshold:
         result = provider.generate_content(prompt, api_key, model=draft_model, **kwargs)
         result["tier"] = "draft"
