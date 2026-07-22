@@ -79,8 +79,13 @@ class ProtectedBranchDeletionRule:
                 )
             for token in action.argv:
                 # Refspec-delete shorthand: an empty source before the colon
-                # (":main" or "origin :main") deletes the remote ref.
-                if token.startswith(":") and token[1:] in _PROTECTED_BRANCHES:
+                # (":main" or "origin :main") deletes the remote ref. Strip
+                # an optional leading "+" (peer-review batch, July 2026):
+                # git's force-push prefix means "+:main" deletes main just
+                # like ":main" does, but token.startswith(":") alone missed
+                # it entirely.
+                clean_token = token.lstrip("+")
+                if clean_token.startswith(":") and clean_token[1:] in _PROTECTED_BRANCHES:
                     return PolicyDecision(
                         decision=Decision.DENY,
                         rule_name=self.name,
@@ -160,11 +165,27 @@ def _classify(argv: "list[str]") -> "str | None":
     return None
 
 
+def _contains_subsequence_in_order(window: "list[str]", seq: "tuple[str, ...]") -> bool:
+    """True if seq's elements all appear in window, in order, not
+    necessarily contiguously."""
+    it = iter(window)
+    return all(step in it for step in seq)
+
+
 class CommandSequenceRule:
     """Stateful (like GitMutationRateLimitRule): tracks a short rolling
     window of recent command classes per instance and flags a run that
     completes a known risky sequence (e.g. download -> make executable ->
-    run), even though each individual step passes every other rule."""
+    run), even though each individual step passes every other rule.
+
+    Matches as an in-order subsequence, not a strictly contiguous one
+    (peer-review batch, July 2026): the original tuple(self._recent[-n:])
+    == seq check required the risky steps to be immediately adjacent, so
+    interleaving one harmless command between them (curl, ls, chmod,
+    ./payload -- "ls" classifies as the catch-all "execute" step just like
+    the real payload does, shifting the tail and breaking the match)
+    bypassed detection entirely.
+    """
 
     name = "command_sequence"
     priority = 12
@@ -180,8 +201,7 @@ class CommandSequenceRule:
         self._recent.append(step)
         self._recent = self._recent[-self._WINDOW :]
         for seq in _RISKY_SEQUENCES:
-            n = len(seq)
-            if tuple(self._recent[-n:]) == seq:
+            if _contains_subsequence_in_order(self._recent, seq):
                 return PolicyDecision(
                     decision=Decision.DENY,
                     rule_name=self.name,

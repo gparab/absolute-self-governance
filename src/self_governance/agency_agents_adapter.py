@@ -373,8 +373,18 @@ def get_persona(
         return registry[role_name]
 
     # 2. Case-insensitive match
+    #
+    # list(...) snapshots the items before iterating (peer-review batch,
+    # July 2026): `registry` defaults to the module-level, mutable
+    # PERSONA_REGISTRY, and step 3 below can insert a newly-synthesized
+    # persona into that same dict. Two concurrent get_persona() calls (e.g.
+    # separate webhook requests, each on its own asyncio.to_thread worker)
+    # can race: one iterating registry.items() here while the other
+    # inserts via synthesize_sdlc_agent(), which raises
+    # "RuntimeError: dictionary changed size during iteration" on a live
+    # view but not on a snapshot.
     lower_name = role_name.lower()
-    for key, persona in registry.items():
+    for key, persona in list(registry.items()):
         if key.lower() == lower_name:
             return persona
 
