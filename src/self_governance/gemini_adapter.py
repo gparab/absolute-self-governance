@@ -194,6 +194,68 @@ def call_gemini(
     )["text"]
 
 
+def build_sandbox_pytest_argv(
+    workspace_dir: str, test_target: Optional[str] = None, timeout_seconds: int = 25
+) -> List[str]:
+    """Builds the `docker run` argv that executes pytest inside a locked-down
+    container instead of on the host.
+
+    Extracted from execute_tests() (peer-review batch, July 2026) so other
+    callers -- specifically nudger.py's Verify Phase, which previously ran
+    `uv run pytest` directly on the host via _policed_run, giving any
+    LLM-generated test/source code host-process privileges -- can reuse the
+    exact same sandboxing instead of re-deriving it.
+
+    Mounts workspace_dir at /work (NOT /app -- that would bury the image's
+    own venv), read-only, with no network and a tmpfs /tmp. The entrypoint
+    is coreutils `timeout`, not pytest directly: subprocess.run's own
+    timeout only kills the local `docker run` CLIENT process (via an
+    uncatchable SIGKILL, so the client can't forward a stop/kill to the
+    daemon on the way out) -- the container itself keeps running
+    server-side, leaking a zombie container per timeout. Running
+    `timeout <N> pytest ...` as the container's own PID 1 makes the
+    container terminate itself well inside the caller's own subprocess
+    timeout budget for the timing-out case, so the caller's timeout becomes
+    a fallback for a hung `docker run` invocation itself, not the normal
+    way a slow test suite gets stopped.
+
+    Args:
+        workspace_dir: Absolute path to the directory to mount and test --
+            the actual code under test, not necessarily the process cwd
+            (e.g. a Ship Phase worktree, not the main working directory).
+        test_target: Optional specific test path/target to run.
+        timeout_seconds: Container-internal timeout, in seconds.
+
+    Returns:
+        The full argv list for subprocess.run.
+    """
+    docker_cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--read-only",
+        "--tmpfs",
+        "/tmp",  # nosec B108
+        "-v",
+        f"{workspace_dir}:/work:ro",
+        "-w",
+        "/work",
+        "--entrypoint",
+        "timeout",
+        os.getenv(
+            "ASG_SANDBOX_IMAGE",
+            "ghcr.io/gparab/absolute-self-governance:latest",
+        ),
+        str(timeout_seconds),
+        "pytest",
+    ]
+    if test_target:
+        docker_cmd.append(test_target)
+    return docker_cmd
+
+
 class GeminiExecutionAdapter(BaseExecutionAdapter):
     """A concrete execution adapter that delegates tasks to Gemini API models.
 
@@ -813,45 +875,7 @@ class GeminiExecutionAdapter(BaseExecutionAdapter):
 
         # Try running pytest inside a containerized sandbox
         try:
-            # Mount the workspace at /work (NOT /app — that would bury the
-            # image's venv) and override the entrypoint to run pytest.
-            #
-            # The entrypoint is coreutils `timeout`, not pytest directly:
-            # subprocess.run's own timeout below only kills the local
-            # `docker run` CLIENT process (via an uncatchable SIGKILL, so
-            # the client can't forward a stop/kill to the daemon on the way
-            # out) -- the container itself keeps running server-side,
-            # leaking a zombie container per timeout. Running `timeout 25
-            # pytest ...` as the container's own PID 1 makes the container
-            # terminate itself well inside Python's 30s budget for the
-            # timing-out case, so subprocess.run's timeout becomes a
-            # fallback for a hung `docker run` invocation itself, not the
-            # normal way a slow test suite gets stopped.
-            docker_cmd = [
-                "docker",
-                "run",
-                "--rm",
-                "--network",
-                "none",
-                "--read-only",
-                "--tmpfs",
-                "/tmp",  # nosec B108
-                "-v",
-                f"{os.path.abspath('.')}:/work:ro",
-                "-w",
-                "/work",
-                "--entrypoint",
-                "timeout",
-                os.getenv(
-                    "ASG_SANDBOX_IMAGE",
-                    "ghcr.io/gparab/absolute-self-governance:latest",
-                ),
-                "25",
-                "pytest",
-            ]
-            if test_target:
-                docker_cmd.append(test_target)
-
+            docker_cmd = build_sandbox_pytest_argv(os.path.abspath("."), test_target=test_target)
             res = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=30)  # nosec B603
             test_output = res.stdout + "\n" + res.stderr
             status = SessionStatus.COMPLETED.value.lower() if res.returncode == 0 else SessionStatus.FAILED.value.lower()

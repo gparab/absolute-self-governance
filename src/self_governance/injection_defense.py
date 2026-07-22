@@ -86,19 +86,39 @@ def _matches_any(text: str, patterns: List[re.Pattern]) -> bool:
     return any(p.search(text) for p in patterns)
 
 
+def _decode_and_check(candidate: str) -> bool:
+    padded = candidate + "=" * (-len(candidate) % 4)
+    try:
+        decoded = base64.b64decode(padded, validate=True).decode("utf-8", errors="strict")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return False
+    return _matches_any(decoded, _INSTRUCTION_OVERRIDE_PATTERNS) or _matches_any(
+        decoded, _AUTHORITY_CLAIM_PATTERNS
+    )
+
+
 def _detect_encoding_evasion(text: str) -> bool:
-    """Decodes long base64-looking substrings and re-checks them for instruction patterns."""
+    """Decodes long base64-looking substrings and re-checks them for instruction patterns.
+
+    Standard base64 encoders wrap output at 76 columns with newlines; a
+    strict contiguous-character regex misses a payload deliberately (or
+    incidentally) wrapped that way, since no single line-fragment alone
+    reaches _MIN_ENCODED_LEN once it's split on the whitespace (peer-review
+    batch, July 2026). Also scans a whitespace-stripped copy of the text
+    against the same strict pattern, which catches whitespace-wrapped
+    payloads without loosening the regex itself to include \\s -- doing
+    that instead would match almost any paragraph of prose over 40
+    characters, not just base64.
+    """
     for match in _BASE64_RE.finditer(text):
-        candidate = match.group(0)
-        padded = candidate + "=" * (-len(candidate) % 4)
-        try:
-            decoded = base64.b64decode(padded, validate=True).decode("utf-8", errors="strict")
-        except (binascii.Error, ValueError, UnicodeDecodeError):
-            continue
-        if _matches_any(decoded, _INSTRUCTION_OVERRIDE_PATTERNS) or _matches_any(
-            decoded, _AUTHORITY_CLAIM_PATTERNS
-        ):
+        if _decode_and_check(match.group(0)):
             return True
+
+    stripped = re.sub(r"\s+", "", text)
+    if stripped != text:
+        for match in _BASE64_RE.finditer(stripped):
+            if _decode_and_check(match.group(0)):
+                return True
     return False
 
 

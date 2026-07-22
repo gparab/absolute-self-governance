@@ -26,6 +26,7 @@ from self_governance.injection_defense import sanitize, TrustLevel
 from self_governance.policy import AgentBudget, ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
 from self_governance.policy_rules import default_rule_set
 from self_governance.alerts import AlertEngine, default_alert_rules
+from self_governance.gemini_adapter import build_sandbox_pytest_argv
 
 logger = logging.getLogger("self_governance.nudger")
 
@@ -374,7 +375,7 @@ class ContinuousNudger:
         self.loop_detector = LoopDetector()
         self._stop_event = threading.Event()
         self.hook_executor = ResilientHookExecutor(self.working_directory)
-        self.policy_engine = PolicyEngine(rules=default_rule_set())
+        self.policy_engine = PolicyEngine(rules=default_rule_set(working_directory=self.working_directory))
         self.alert_engine = AlertEngine(rules=default_alert_rules())
         self._consecutive_verify_failed = 0
         self._policy_checked_count = 0
@@ -652,8 +653,18 @@ class ContinuousNudger:
                         try:
                             worktree_path = os.path.join(self.working_directory, ".planning", "worktrees", "active_task")
                             exec_dir = worktree_path if os.path.exists(worktree_path) else self.working_directory
-                            
-                            pytest_res = self._policed_run("run_pytest", ["uv", "run", "pytest", "-q"], exec_dir, capture_output=True, text=True)
+
+                            # Sandboxed, not `uv run pytest` on the host (peer-review
+                            # batch, July 2026): the code under test here is
+                            # LLM-generated and untrusted -- running it directly on
+                            # the orchestrator's host process gives it host
+                            # privileges. build_sandbox_pytest_argv runs it in the
+                            # same read-only, network-disabled Docker container
+                            # gemini_adapter.execute_tests() already uses.
+                            pytest_argv = build_sandbox_pytest_argv(exec_dir)
+                            pytest_res = self._policed_run(
+                                "run_pytest", pytest_argv, exec_dir, capture_output=True, text=True, timeout=35
+                            )
                             audit_res = self._policed_run(
                                 "run_security_audit",
                                 ["uv", "run", "self-governance", "security-audit", self.config.handoff_file],

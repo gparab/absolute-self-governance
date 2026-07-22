@@ -42,22 +42,52 @@ class ForbiddenCommandRule:
 
 
 class ProtectedBranchDeletionRule:
-    """Denies branch deletion targeting master/main, even without -D."""
+    """Denies branch deletion targeting master/main, whether local
+    (`git branch -d/-D/--delete <branch>`) or remote (`git push origin
+    --delete <branch>`, or the `:<branch>` refspec-delete shorthand).
+
+    The original version only checked local `branch` deletion -- requiring
+    the literal token "branch" in argv -- so `git push origin --delete
+    main` bypassed it entirely (peer-review batch, July 2026): `push` isn't
+    `branch`, so the rule abstained immediately.
+    """
 
     name = "protected_branch_deletion"
     priority = 11
 
     def evaluate(self, action: PolicyAction) -> "PolicyDecision | None":
-        if not action.argv or "branch" not in action.argv:
+        if not action.argv:
             return None
         argv_set = set(action.argv)
-        deleting = bool(argv_set & {"-d", "-D", "--delete"})
-        if deleting and (argv_set & _PROTECTED_BRANCHES):
-            return PolicyDecision(
-                decision=Decision.DENY,
-                rule_name=self.name,
-                reason=f"attempted deletion of a protected branch: {action.argv}",
-            )
+
+        if "branch" in argv_set:
+            deleting = bool(argv_set & {"-d", "-D", "--delete"})
+            if deleting and (argv_set & _PROTECTED_BRANCHES):
+                return PolicyDecision(
+                    decision=Decision.DENY,
+                    rule_name=self.name,
+                    reason=f"attempted deletion of a protected branch: {action.argv}",
+                )
+            return None
+
+        if "push" in argv_set:
+            if argv_set & {"--delete", "-d"} and argv_set & _PROTECTED_BRANCHES:
+                return PolicyDecision(
+                    decision=Decision.DENY,
+                    rule_name=self.name,
+                    reason=f"attempted remote deletion of a protected branch: {action.argv}",
+                )
+            for token in action.argv:
+                # Refspec-delete shorthand: an empty source before the colon
+                # (":main" or "origin :main") deletes the remote ref.
+                if token.startswith(":") and token[1:] in _PROTECTED_BRANCHES:
+                    return PolicyDecision(
+                        decision=Decision.DENY,
+                        rule_name=self.name,
+                        reason=f"attempted remote deletion of a protected branch via refspec: {action.argv}",
+                    )
+            return None
+
         return None
 
 
