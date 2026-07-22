@@ -179,6 +179,10 @@ def parse_args():
         "--export", metavar="FILE", default=None,
         help="Write the retro report as markdown to FILE instead of printing"
     )
+    parser_retro.add_argument(
+        "--as-json", dest="as_json", action="store_true",
+        help="Print the raw learning-state dict as JSON instead of the formatted report"
+    )
     # import-agents subcommand
     parser_import = subparsers.add_parser(
         "import-agents", aliases=["import_agents"],

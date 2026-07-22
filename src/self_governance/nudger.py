@@ -716,9 +716,36 @@ class ContinuousNudger:
                                 if os.path.exists(worktree_path):
                                     self._policed_run("git_add", ["git", "add", "."], worktree_path, capture_output=True)
                                     self._policed_run("git_commit", ["git", "commit", "-m", "ASG Ship Phase: Auto-commit"], worktree_path, capture_output=True)
-                                    self._policed_run("git_merge", ["git", "merge", "active_task"], self.working_directory, capture_output=True)
-                                    self._policed_run("git_worktree_remove", ["git", "worktree", "remove", "-f", worktree_path], self.working_directory, path=worktree_path, capture_output=True)
-                                    self._policed_run("git_branch_delete_scratch", ["git", "branch", "-d", "active_task"], self.working_directory, capture_output=True)
+                                    merge_res = self._policed_run(
+                                        "git_merge", ["git", "merge", "active_task"], self.working_directory,
+                                        capture_output=True, text=True,
+                                    )
+                                    if merge_res.returncode != 0:
+                                        # A conflicting merge previously fell through
+                                        # unchecked here (peer-review batch, July 2026):
+                                        # the worktree/branch got deleted anyway, leaving
+                                        # the repo stuck in an unresolved MERGING state
+                                        # (.git/MERGE_HEAD) that broke every future
+                                        # automated git action until a human ran
+                                        # `git merge --abort` by hand. Abort immediately
+                                        # instead, and leave the worktree/branch intact
+                                        # so there's something to inspect/retry.
+                                        logger.error(
+                                            "Ship Phase merge conflict; aborting merge. Output: %s",
+                                            (merge_res.stdout or "")[:500],
+                                        )
+                                        self._policed_run(
+                                            "git_merge_abort", ["git", "merge", "--abort"],
+                                            self.working_directory, capture_output=True,
+                                        )
+                                        _emit_event(self.working_directory, "ship_merge_conflict", {
+                                            "message": "Merge conflict detected; merge aborted, worktree preserved for manual resolution.",
+                                            "output": (merge_res.stdout or "")[:500],
+                                        })
+                                        self._check_alerts()
+                                    else:
+                                        self._policed_run("git_worktree_remove", ["git", "worktree", "remove", "-f", worktree_path], self.working_directory, path=worktree_path, capture_output=True)
+                                        self._policed_run("git_branch_delete_scratch", ["git", "branch", "-d", "active_task"], self.working_directory, capture_output=True)
 
                                 self._policed_run(
                                     "export_retro",
