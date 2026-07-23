@@ -20,7 +20,7 @@ from self_governance.config import OrchestratorConfig
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from self_governance.anti_drift import LoopDetector, LoopInterceptionError, self_critique
-from self_governance.graph_memory import GraphMemoryEngine
+from self_governance.graph_memory import GraphMemoryEngine, materialize_skill_card
 from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
 from self_governance.policy import AgentBudget, ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
@@ -719,6 +719,30 @@ class ContinuousNudger:
                                         if audit_res.stdout:
                                             summary += f"  Audit Output:\n{audit_res.stdout[:500]}\n"
 
+                                    # Procedural memory has recorded prior fixes
+                                    # for failures like this one since Phase D3
+                                    # (see graph_memory.recommend_procedure), but
+                                    # nothing in the production Verify Phase ever
+                                    # consulted it -- every repeated failure got
+                                    # re-diagnosed from scratch. Surface a
+                                    # confident match as a skill card in the
+                                    # failure summary the next succession round
+                                    # reads, instead of only the raw pytest/audit
+                                    # output. Best-effort: any failure here just
+                                    # means no suggestion is attached, never a
+                                    # halt of the verify-failure path itself.
+                                    skill_card_note = ""
+                                    try:
+                                        graph_engine = GraphMemoryEngine(self.tenant_id if hasattr(self, "tenant_id") else "default")
+                                        procedure = graph_engine.recommend_procedure(trigger_pattern=summary)
+                                        if procedure is not None and procedure.get("context_sufficient"):
+                                            skill_card_note = (
+                                                "\n## Suggested Fix (from procedural memory)\n"
+                                                f"{materialize_skill_card(procedure)}\n"
+                                            )
+                                    except Exception as e:
+                                        logger.warning("recommend_procedure lookup failed (non-fatal): %s", e)
+
                                     body = ""
                                     if content.startswith("---"):
                                         parts = content.split("---", 2)
@@ -727,7 +751,7 @@ class ContinuousNudger:
                                     else:
                                         body = content
 
-                                    body = f"\n# Failure Summary\n{summary}\n{body}"
+                                    body = f"\n# Failure Summary\n{summary}{skill_card_note}\n{body}"
                                     new_yaml = yaml.safe_dump(parsed)
                                     new_content = f"---\n{new_yaml}---\n{body}"
                                     with open(handoff_path, "w", encoding="utf-8") as f:
