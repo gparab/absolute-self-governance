@@ -4,9 +4,12 @@ Defines client components for registering and calling MCP tools,
 along with parameters verification and refactoring fallback helpers.
 """
 
+import json
 import re
 import logging
-from typing import Callable, Optional, Any
+import urllib.parse
+import urllib.request
+from typing import Callable, Dict, List, Optional, Any
 
 logger = logging.getLogger("self_governance.mcp")
 
@@ -199,4 +202,166 @@ def refactor_and_retry_tool(error_msg: str, tool_name: str, args: dict, docs: st
         return client.call_tool(tool_name, refactored)
 
     return {"status": "refactored", "args": refactored}
+
+
+_OPENAPI_HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+
+
+def _sanitize_tool_name(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_") or "unnamed_tool"
+
+
+def _build_openapi_call(
+    base_url: str,
+    path: str,
+    method: str,
+    path_params: List[str],
+    query_params: List[str],
+    body_params: List[str],
+    headers: Optional[Dict[str, str]],
+    timeout: float,
+) -> Callable[..., Any]:
+    """Builds a real HTTP-calling implementation for one OpenAPI operation.
+
+    Closes over which properties belong in the URL path, the query string,
+    or the JSON body -- register_tools_from_openapi_schema flattens all
+    three into one tool schema (what call_tool validates against), so the
+    generated implementation is what re-splits them back out per request.
+    """
+
+    def _call(**kwargs: Any) -> Any:
+        resolved_path = path
+        for name in path_params:
+            resolved_path = resolved_path.replace(
+                f"{{{name}}}", urllib.parse.quote(str(kwargs[name]), safe="")
+            )
+
+        url = base_url.rstrip("/") + resolved_path
+        query = {k: kwargs[k] for k in query_params if k in kwargs}
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+
+        body = {k: kwargs[k] for k in body_params if k in kwargs}
+        data = json.dumps(body).encode() if body else None
+
+        req_headers = {"Content-Type": "application/json"}
+        if headers:
+            req_headers.update(headers)
+
+        req = urllib.request.Request(  # nosec B310 -- base_url is operator-configured, not agent-controlled
+            url, data=data, headers=req_headers, method=method.upper()
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
+            raw = response.read().decode()
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return raw
+
+    return _call
+
+
+def register_tools_from_openapi_schema(
+    client: MCPClient,
+    openapi_schema: dict,
+    base_url: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
+    max_calls: Optional[int] = None,
+    timeout: float = 30.0,
+) -> List[str]:
+    """Auto-registers one MCP tool per OpenAPI operation, instead of
+    hand-writing a schema and implementation for each endpoint by hand
+    (agency-swarm's ToolFactory.from_openapi_schema, July 2026 topic-page
+    research pass -- this is the same idea, reimplemented against ASG's
+    own MCPClient/call_tool contract rather than adding agency-swarm or
+    the OpenAI Agents SDK as a dependency).
+
+    Scoped to what a typical simple REST API needs: path/query parameters
+    and a flat JSON object request body. Doesn't handle OpenAPI features
+    like oneOf/allOf composition, cookie parameters, or non-JSON bodies --
+    a caller with those needs still registers that one tool by hand via
+    register_tool() directly.
+
+    Args:
+        client: The MCPClient to register generated tools on.
+        openapi_schema: A parsed OpenAPI 3.x document (dict).
+        base_url: Origin to prepend to each operation's path. Falls back
+            to openapi_schema["servers"][0]["url"] if present.
+        headers: Optional headers (e.g. an Authorization token) sent with
+            every generated tool's requests.
+        max_calls: Optional per-tool call quota, forwarded to
+            register_tool() for every generated tool.
+        timeout: Per-request timeout in seconds.
+
+    Returns:
+        The list of tool names that were registered.
+
+    Raises:
+        ValueError: If no base_url is given and none is present in the
+            schema's own "servers" list.
+    """
+    if base_url is None:
+        servers = openapi_schema.get("servers") or []
+        if servers and servers[0].get("url"):
+            base_url = servers[0]["url"]
+        else:
+            raise ValueError("base_url not given and openapi_schema has no servers[0].url")
+
+    registered: List[str] = []
+    for path, path_item in (openapi_schema.get("paths") or {}).items():
+        for method in _OPENAPI_HTTP_METHODS:
+            operation = path_item.get(method)
+            if operation is None:
+                continue
+
+            tool_name = _sanitize_tool_name(
+                operation.get("operationId") or f"{method}_{path}"
+            )
+
+            properties: Dict[str, Any] = {}
+            required: List[str] = []
+            path_params: List[str] = []
+            query_params: List[str] = []
+            body_params: List[str] = []
+
+            for param in operation.get("parameters", []):
+                p_name = param["name"]
+                p_schema = param.get("schema", {})
+                properties[p_name] = {
+                    "type": p_schema.get("type", "string"),
+                    "description": param.get("description", ""),
+                }
+                if param.get("required"):
+                    required.append(p_name)
+                if param.get("in") == "path":
+                    path_params.append(p_name)
+                elif param.get("in") == "query":
+                    query_params.append(p_name)
+
+            body_schema = (
+                operation.get("requestBody", {})
+                .get("content", {})
+                .get("application/json", {})
+                .get("schema", {})
+            )
+            for b_name, b_prop in body_schema.get("properties", {}).items():
+                properties[b_name] = {
+                    "type": b_prop.get("type", "string"),
+                    "description": b_prop.get("description", ""),
+                }
+                body_params.append(b_name)
+            required.extend(body_schema.get("required", []))
+
+            schema = {
+                "description": operation.get("summary") or operation.get("description", ""),
+                "properties": properties,
+                "required": required,
+            }
+            implementation = _build_openapi_call(
+                base_url, path, method, path_params, query_params, body_params, headers, timeout
+            )
+            client.register_tool(tool_name, schema, implementation, max_calls=max_calls)
+            registered.append(tool_name)
+
+    return registered
 
