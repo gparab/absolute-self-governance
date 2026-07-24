@@ -11,11 +11,15 @@ import random
 import re
 import uuid
 import networkx as nx
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from self_governance.db import GraphNode, GraphEdge, get_db
+from self_governance.learning import embed_text
+
+if TYPE_CHECKING:
+    from self_governance.learning import AgentDB
 
 logger = logging.getLogger("self_governance.graph")
 
@@ -42,6 +46,13 @@ _RELATION_SCAN_LIMIT = 200
 # Jaccard approach as constraint linking above -- reuses _tokenize rather
 # than inventing a second similarity mechanism.
 _PROCEDURE_MATCH_THRESHOLD = 0.3
+
+# Semantic (HNSW cosine-similarity) match threshold for recommend_procedure's
+# supplementary AgentDB search (HyphaeDB-inspired, July 2026 topic-page
+# batch) -- a separate, stricter threshold from _PROCEDURE_MATCH_THRESHOLD
+# since cosine similarity over embed_text's char-composition vectors is a
+# different metric than Jaccard token overlap, not directly comparable.
+_SEMANTIC_MATCH_THRESHOLD = 0.85
 _PROCEDURE_SCAN_LIMIT = 200
 
 # Sufficient-context gating (Google Research, "Sufficient Context: A New
@@ -140,8 +151,28 @@ def _tokenize(text: str) -> set:
 class GraphMemoryEngine:
     """Engine for building and querying the GraphRAG memory."""
 
-    def __init__(self, tenant_id: str):
+    def __init__(self, tenant_id: str, agent_db: Optional["AgentDB"] = None):
+        """Args:
+            tenant_id: Tenant scope for all graph operations.
+            agent_db: Optional AgentDB (learning.py) instance for semantic
+                procedure recall (HyphaeDB-inspired HNSW-as-recall-fabric,
+                July 2026 topic-page batch): AgentDB's HNSWIndex already
+                existed in this codebase but was never connected to
+                procedural memory, which only ever did lexical (Jaccard
+                token-overlap) trigger matching. When set,
+                record_procedure_outcome also indexes each procedure's
+                trigger_pattern into agent_db's "patterns" namespace, and
+                recommend_procedure additionally does a nearest-neighbor
+                search there -- surfacing procedures whose trigger text
+                shares little vocabulary overlap with the query (so Jaccard
+                misses them) but is structurally similar (embed_text is a
+                char-composition vector, not true semantic embedding -- a
+                complementary signal to Jaccard, not a semantic upgrade to
+                it). None (default) preserves exact prior behavior:
+                lexical-only recall, no AgentDB dependency.
+        """
         self.tenant_id = tenant_id
+        self.agent_db = agent_db
 
     def _get_session(self) -> Session:
         # Get a db session using the generator
@@ -514,6 +545,10 @@ class GraphMemoryEngine:
             procedure_node = GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props))
             db.merge(procedure_node)
             db.commit()
+
+            if self.agent_db is not None:
+                self.agent_db.insert("patterns", procedure_id, embed_text(trigger_pattern))
+
             return procedure_id
         except Exception as e:
             db.rollback()
@@ -644,8 +679,53 @@ class GraphMemoryEngine:
                     "step_credit": props.get("step_credit", {}),
                     "context_sufficient": similarity >= _PROCEDURE_MATCH_THRESHOLD + _SUFFICIENT_CONTEXT_MARGIN,
                     "match_similarity": similarity,
+                    "match_source": "lexical",
                     "_rank_key": (ema_score, total),
                 })
+
+            if self.agent_db is not None:
+                seen_names = {c["name"] for c in candidates}
+                query_vector = embed_text(trigger_pattern)
+                for sim, node_id in self.agent_db.namespaces["patterns"].search(query_vector, k=5):
+                    if sim < _SEMANTIC_MATCH_THRESHOLD:
+                        continue
+                    procedure_id = self.agent_db.id_to_key["patterns"].get(node_id)
+                    if procedure_id is None:
+                        continue
+                    semantic_node = db.query(GraphNode).filter(GraphNode.id == procedure_id).first()
+                    if semantic_node is None or not semantic_node.properties:
+                        continue
+                    props = json.loads(str(semantic_node.properties))
+                    if props.get("name") in seen_names:
+                        continue  # already found lexically, don't duplicate
+                    success = props.get("success_count", 0)
+                    failure = props.get("failure_count", 0)
+                    total = success + failure
+                    if total == 0:
+                        continue
+                    flaw_counts = props.get("flaw_category_counts", {})
+                    if flaw_category is not None and flaw_counts.get(flaw_category, 0) == 0:
+                        continue
+                    ema_score = props.get("ema_success_score")
+                    if ema_score is None:
+                        ema_score = success / total
+                    candidates.append({
+                        "name": props.get("name"),
+                        "steps": props.get("steps", []),
+                        "success_count": success,
+                        "failure_count": failure,
+                        "success_rate": success / total,
+                        "ema_success_score": ema_score,
+                        "recency_decayed_score": ema_score,
+                        "flaw_category_counts": flaw_counts,
+                        "critiques": props.get("critiques", []),
+                        "step_credit": props.get("step_credit", {}),
+                        "context_sufficient": False,  # a semantic-only match never clears the lexical margin
+                        "match_similarity": sim,
+                        "match_source": "semantic",
+                        "_rank_key": (ema_score, total),
+                    })
+                    seen_names.add(props.get("name"))
 
             if not candidates:
                 return None
@@ -659,6 +739,87 @@ class GraphMemoryEngine:
                     chosen = picker.choice(alternatives)
 
             return {k: v for k, v in chosen.items() if k != "_rank_key"}
+        finally:
+            db.close()
+
+    def patch_procedure_if_stale(
+        self,
+        name: str,
+        new_steps: List[str],
+        staleness_threshold: float = 0.3,
+    ) -> bool:
+        """Versioned rewrite of a procedure's steps when it's gone stale
+        (Swarm Skills' CREATE-USE-PATCH loop, July 2026 topic-page batch):
+        Swarm Skills scores skills on Effectiveness, Utilization, and
+        Freshness, and auto-patches ones whose Freshness has dropped rather
+        than only ever adjusting a single scalar score. ASG's existing
+        recency_decayed_score (see _FORGETTING_DECAY_RATE) already is a
+        freshness signal -- the gap between it and the raw ema_success_score
+        is exactly "how much has this procedure aged since it last proved
+        itself," which this method uses as the patch trigger.
+
+        Not invoked automatically anywhere -- ASG has no reliable signal
+        for "the previously-recommended fix didn't work" to auto-trigger
+        this from. A caller (e.g. a Verify Phase that notices its
+        recommend_procedure suggestion didn't resolve a recurring failure)
+        calls this explicitly with a regenerated set of steps.
+
+        Args:
+            name: The procedure's stable identifier (same as
+                record_procedure_outcome's name param).
+            new_steps: The regenerated steps to patch in.
+            staleness_threshold: How much relative decay
+                (1 - recency_decayed_score/ema_success_score) triggers a
+                patch. Below this, the procedure is still fresh enough
+                that new_steps is ignored and this returns False.
+
+        Returns:
+            True if the procedure was patched (old steps archived into
+            step_history, new_steps installed, version incremented).
+            False if the procedure doesn't exist, has no recorded
+            attempts, or isn't stale enough to warrant patching.
+        """
+        db = self._get_session()
+        try:
+            procedure_id = f"procedure_{self.tenant_id}_{name.replace(' ', '_')}"
+            node = db.query(GraphNode).filter(GraphNode.id == procedure_id).first()
+            if node is None or not node.properties:
+                return False
+
+            props = json.loads(str(node.properties))
+            ema_score = props.get("ema_success_score")
+            total = props.get("success_count", 0) + props.get("failure_count", 0)
+            if ema_score is None or total == 0:
+                return False
+
+            counter_node = db.query(GraphNode).filter(
+                GraphNode.id == f"_touch_counter_{self.tenant_id}"
+            ).first()
+            current_touch_index = (
+                json.loads(str(counter_node.properties)).get("value", 0)
+                if counter_node is not None and counter_node.properties
+                else 0
+            )
+            staleness = max(0, current_touch_index - props.get("last_touch_index", current_touch_index))
+            recency_decayed_score = ema_score * math.exp(-_FORGETTING_DECAY_RATE * staleness)
+
+            relative_decay = 1.0 - (recency_decayed_score / ema_score) if ema_score > 0 else 0.0
+            if relative_decay < staleness_threshold:
+                return False
+
+            step_history = props.get("step_history", [])
+            step_history.append({"steps": props.get("steps", []), "version": props.get("version", 1)})
+            props["step_history"] = step_history[-_MAX_STORED_CRITIQUES:]
+            props["steps"] = new_steps
+            props["version"] = props.get("version", 1) + 1
+
+            db.merge(GraphNode(id=procedure_id, tenant_id=self.tenant_id, type="Procedure", properties=json.dumps(props)))
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to patch procedure '{name}': {e}")
+            raise
         finally:
             db.close()
 

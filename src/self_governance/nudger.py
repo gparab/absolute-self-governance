@@ -21,6 +21,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from self_governance.anti_drift import LoopDetector, LoopInterceptionError, self_critique
 from self_governance.graph_memory import GraphMemoryEngine, materialize_skill_card
+from self_governance.learning import AgentDB
 from self_governance.fact_extraction import extract_facts
 from self_governance.injection_defense import sanitize, TrustLevel
 from self_governance.policy import AgentBudget, ActionSource, PolicyAction, PolicyDenied, PolicyEngine, RiskLevel
@@ -360,6 +361,13 @@ class ContinuousNudger:
         self.working_directory = working_directory
         self.config = config if config is not None else OrchestratorConfig()
         self.action_budget = AgentBudget(max_actions=action_budget) if action_budget is not None else None
+        # Kept alive for this process's lifetime so procedure embeddings
+        # persist across Verify Phase cycles (HyphaeDB-inspired semantic
+        # recall, July 2026 topic-page batch) -- AgentDB is in-memory only
+        # (same limitation the existing HNSWIndex/AgentDB already had before
+        # this wiring), so a nudger restart starts recall fresh, same as
+        # the rest of this in-memory index always has.
+        self._procedure_agent_db = AgentDB()
         # RLock, not Lock: process_handoff() holds this lock for its whole
         # body and calls trigger_succession() from within it (via
         # _execute_succession_safely); trigger_succession() itself also
@@ -733,7 +741,10 @@ class ContinuousNudger:
                                     # halt of the verify-failure path itself.
                                     skill_card_note = ""
                                     try:
-                                        graph_engine = GraphMemoryEngine(self.tenant_id if hasattr(self, "tenant_id") else "default")
+                                        graph_engine = GraphMemoryEngine(
+                                            self.tenant_id if hasattr(self, "tenant_id") else "default",
+                                            agent_db=self._procedure_agent_db,
+                                        )
                                         procedure = graph_engine.recommend_procedure(trigger_pattern=summary)
                                         if procedure is not None and procedure.get("context_sufficient"):
                                             skill_card_note = (

@@ -36,6 +36,49 @@ _GROUPTHINK_JACCARD_THRESHOLD = 0.6
 # real overflow while still rejecting something like a 999 or -50.
 _CLAMP_MARGIN = 0.5
 
+# Pheromone belief accumulator defaults (TPSC-Sec, Ant-Colony-inspired
+# multi-agent consensus, July 2026 topic-page batch).
+_BELIEF_DECAY_RHO = 0.15
+_BELIEF_SUPPORT_ETA = 0.5
+_BELIEF_CONTRADICTION_MU = 0.3
+
+
+def update_pheromone_belief(
+    prior_belief: float,
+    support: float,
+    contradiction: float,
+    rho: float = _BELIEF_DECAY_RHO,
+    eta: float = _BELIEF_SUPPORT_ETA,
+    mu: float = _BELIEF_CONTRADICTION_MU,
+) -> float:
+    """One step of an Ant-Colony-inspired pheromone update: belief decays
+    toward zero each round, reinforced by support and independently
+    penalized by contradiction (TPSC-Sec, July 2026 topic-page batch).
+
+    Unlike TETD's per-round score, which resets each iteration, this
+    carries momentum: an agent whose score has been consistently strong
+    across several rounds accumulates belief faster than one whose score
+    just spiked once, and a round of high disagreement erodes belief
+    independently of whether the agent's own score was high.
+
+    Args:
+        prior_belief: The agent's belief score before this round, in
+            [0.0, 1.0] (0.5 is a neutral starting point).
+        support: How strongly this round's evidence supports the agent,
+            in [0.0, 1.0] (e.g. that agent's score normalized to [0, 1]).
+        contradiction: How much this round's evidence contradicts the
+            agent, in [0.0, 1.0] (e.g. that agent's disagreement with the
+            round's consensus, also normalized).
+        rho: Decay rate applied to the prior belief each round.
+        eta: Weight applied to the support term.
+        mu: Weight applied to the contradiction term.
+
+    Returns:
+        The updated belief, clamped to [0.0, 1.0].
+    """
+    belief = (1.0 - rho) * prior_belief + eta * support - mu * contradiction
+    return max(0.0, min(1.0, belief))
+
 
 def _detect_groupthink(justifications: dict, approved_agents: List[str]) -> bool:
     """Groupthink-suspicion heuristic (Janis 1972 taxonomy, July 2026
@@ -365,6 +408,15 @@ class ConsensusEngine:
         self.justifications: dict[str, dict[str, Any]] = {}
         self.scores: dict[str, float] = {}
         self.advisor_called = False
+        # Pheromone-style belief accumulator (TPSC-Sec, Ant-Colony-inspired
+        # consensus, July 2026 topic-page batch): carries momentum for each
+        # agent across rounds/debate instead of only ever looking at the
+        # current round's raw score. Purely informational/additive -- the
+        # actual approved_roster decision below is unchanged (still
+        # avg_score >= tau each round); a caller that wants to factor
+        # belief momentum into its own downstream logic reads
+        # get_belief_scores() after run() completes.
+        self._belief: dict[str, float] = {}
 
     def _invoke_advisor(self, peer_feedback: str) -> str:
         """Consults the advisor and appends instructions to peer feedback.
@@ -583,6 +635,27 @@ class ConsensusEngine:
 
         return score, justification
 
+    def _update_beliefs(self, effective_scores: dict, avg_score: float) -> None:
+        """Updates each scored agent's pheromone belief for one round.
+
+        support is that agent's own score normalized to [0, 1]; contradiction
+        is how far that agent's score sits from the round's own average,
+        also normalized -- an agent who agrees with the group loses little
+        belief even in a low-scoring round, while an outlier (in either
+        direction) is penalized independent of its raw score.
+        """
+        for agent, score in effective_scores.items():
+            support = max(0.0, min(1.0, score / 10.0))
+            contradiction = max(0.0, min(1.0, abs(score - avg_score) / 10.0))
+            prior = self._belief.get(agent, 0.5)
+            self._belief[agent] = update_pheromone_belief(prior, support, contradiction)
+
+    def get_belief_scores(self) -> dict:
+        """Returns the current pheromone belief per agent (see
+        update_pheromone_belief), accumulated across every round/debate
+        pass run() has executed so far. Empty before run() is called."""
+        return dict(self._belief)
+
     def run(self) -> ConsensusResult:
         """Run the TETD consensus simulation loop.
 
@@ -689,6 +762,7 @@ class ConsensusEngine:
                 effective_scores = gated_scores if gated_scores else self.scores
                 avg_score = _weighted_average(effective_scores, self.calibration_weights)
                 logger.info("Consensus iteration %d average score: %.2f", self.iteration, avg_score)
+                self._update_beliefs(effective_scores, avg_score)
 
                 # Debate phase for contested votes (Du et al. 2023 multiagent-
                 # debate research, July 2026 topic-page batch): a round that
@@ -717,6 +791,7 @@ class ConsensusEngine:
                     effective_scores = debate_scores
                     avg_score = _weighted_average(effective_scores, self.calibration_weights)
                     logger.info("Debate round revised average score to %.2f", avg_score)
+                    self._update_beliefs(effective_scores, avg_score)
 
                 if avg_score >= self.tau:
                     approved = [agent for agent, score in effective_scores.items() if score >= self.tau]
